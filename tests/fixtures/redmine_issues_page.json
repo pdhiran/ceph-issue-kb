@@ -1,0 +1,25 @@
+{
+  "issues": [
+    {
+      "id": 68051,
+      "project": {"id": 15, "name": "Ceph"},
+      "tracker": {"id": 1, "name": "Bug"},
+      "status": {"id": 1, "name": "New"},
+      "priority": {"id": 2, "name": "Normal"},
+      "subject": "OSD crash during deep scrub with BlueStore",
+      "updated_on": "2024-10-16T12:00:00Z"
+    },
+    {
+      "id": 68050,
+      "project": {"id": 15, "name": "Ceph"},
+      "tracker": {"id": 1, "name": "Bug"},
+      "status": {"id": 2, "name": "In Progress"},
+      "priority": {"id": 3, "name": "High"},
+      "subject": "RGW multisite sync stuck after zone rename",
+      "updated_on": "2024-10-15T14:00:00Z"
+    }
+  ],
+  "total_count": 2,
+  "offset": 0,
+  "limit": 100
+}
