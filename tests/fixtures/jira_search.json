@@ -1,0 +1,102 @@
+{
+  "expand": "names,schema",
+  "startAt": 0,
+  "maxResults": 50,
+  "total": 2,
+  "issues": [
+    {
+      "expand": "renderedFields,names,schema,operations,editmeta,changelog",
+      "id": "10234",
+      "self": "https://ibm-ceph.atlassian.net/rest/api/2/issue/10234",
+      "key": "IBMCEPH-1234",
+      "fields": {
+        "summary": "RGW: bucket resharding fails with ENOENT on multisite secondary",
+        "status": {
+          "name": "In Progress",
+          "id": "10001"
+        },
+        "priority": {
+          "name": "High",
+          "id": "2"
+        },
+        "issuetype": {
+          "name": "Bug",
+          "id": "1"
+        },
+        "project": {
+          "key": "IBMCEPH",
+          "name": "IBM Ceph"
+        },
+        "reporter": {
+          "displayName": "Pawan Dhiran",
+          "accountId": "abc123"
+        },
+        "assignee": {
+          "displayName": "Casey Bodley",
+          "accountId": "def456"
+        },
+        "created": "2024-10-20T08:15:00.000+0000",
+        "updated": "2024-10-22T16:45:00.000+0000",
+        "components": [
+          {"name": "RGW"},
+          {"name": "Multisite"}
+        ],
+        "labels": ["resharding", "multisite", "reef"],
+        "comment": {
+          "comments": [
+            {
+              "id": "20001",
+              "author": {"displayName": "Casey Bodley"},
+              "body": "I can reproduce this.",
+              "created": "2024-10-20T14:30:00.000+0000"
+            }
+          ],
+          "total": 2
+        }
+      }
+    },
+    {
+      "expand": "renderedFields,names,schema,operations,editmeta,changelog",
+      "id": "10220",
+      "self": "https://ibm-ceph.atlassian.net/rest/api/2/issue/10220",
+      "key": "IBMCEPH-1220",
+      "fields": {
+        "summary": "RGW: ListObjectsV2 returns incorrect CommonPrefixes with delimiter",
+        "status": {
+          "name": "Resolved",
+          "id": "10002"
+        },
+        "priority": {
+          "name": "Medium",
+          "id": "3"
+        },
+        "issuetype": {
+          "name": "Bug",
+          "id": "1"
+        },
+        "project": {
+          "key": "IBMCEPH",
+          "name": "IBM Ceph"
+        },
+        "reporter": {
+          "displayName": "Mark Nelson",
+          "accountId": "ghi789"
+        },
+        "assignee": {
+          "displayName": "Pawan Dhiran",
+          "accountId": "abc123"
+        },
+        "created": "2024-10-18T11:00:00.000+0000",
+        "updated": "2024-10-21T09:30:00.000+0000",
+        "components": [
+          {"name": "RGW"}
+        ],
+        "labels": ["s3", "listing"],
+        "comment": {
+          "comments": [],
+          "total": 0
+        }
+      }
+    }
+  ]
+}

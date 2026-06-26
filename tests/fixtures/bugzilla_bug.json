@@ -1,0 +1,36 @@
+{
+  "bugs": [
+    {
+      "id": 2189456,
+      "alias": [],
+      "product": "Red Hat Ceph Storage",
+      "component": "OSD",
+      "version": "7.1",
+      "status": "ASSIGNED",
+      "resolution": "",
+      "severity": "high",
+      "priority": "high",
+      "summary": "OSD memory leak in BlueStore cache during recovery after ungraceful shutdown",
+      "creator": "user1@redhat.com",
+      "assigned_to": "user2@redhat.com",
+      "creation_time": "2024-10-10T09:30:00Z",
+      "last_change_time": "2024-10-18T15:45:00Z",
+      "target_release": ["7.2"],
+      "keywords": ["Triaged", "ZStream"],
+      "blocks": [2189000],
+      "depends_on": [],
+      "cf_fixed_in": "",
+      "cf_doc_type": "Bug Fix",
+      "whiteboard": "ceph-osd bluestore memory",
+      "flags": [
+        {
+          "name": "needinfo",
+          "status": "?",
+          "requestee": "user2@redhat.com",
+          "setter": "user1@redhat.com"
+        }
+      ]
+    }
+  ],
+  "faults": []
+}

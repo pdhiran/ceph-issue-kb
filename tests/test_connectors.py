@@ -15,7 +15,10 @@ import responses
 from ceph_issue_kb.config import AuthConfig, ConnectorConfig
 from ceph_issue_kb.connectors import ConnectorError, get_connector
 from ceph_issue_kb.connectors.auth import AuthError, AuthProvider
+from ceph_issue_kb.connectors.bugzilla import BugzillaConnector
+from ceph_issue_kb.connectors.jira import JiraConnector
 from ceph_issue_kb.connectors.redmine import RedmineConnector
+from ceph_issue_kb.connectors.rhkb import RHKBConnector
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -61,6 +64,54 @@ class TestGetConnector:
     def test_redmine(self):
         connector = get_connector(_redmine_config())
         assert isinstance(connector, RedmineConnector)
+
+    def test_jira(self):
+        cfg = ConnectorConfig(
+            name="ibm-jira",
+            connector_type="jira",
+            enabled=True,
+            base_url="https://ibm-ceph.atlassian.net",
+            auth=AuthConfig(
+                method="api_token",
+                username_env="JIRA_USERNAME",
+                token_env="JIRA_API_TOKEN",
+            ),
+            rate_limit=100,
+            extra={"project": "IBMCEPH"},
+        )
+        with patch.dict(
+            "os.environ",
+            {"JIRA_USERNAME": "u@example.com", "JIRA_API_TOKEN": "tok"},
+        ):
+            connector = get_connector(cfg)
+        assert isinstance(connector, JiraConnector)
+
+    def test_bugzilla(self):
+        cfg = ConnectorConfig(
+            name="redhat-bugzilla",
+            connector_type="bugzilla",
+            enabled=True,
+            base_url="https://bugzilla.redhat.com",
+            auth=AuthConfig(method="api_key", key_env="BUGZILLA_API_KEY"),
+            rate_limit=100,
+            extra={"product": "Red Hat Ceph Storage"},
+        )
+        with patch.dict("os.environ", {"BUGZILLA_API_KEY": "key123"}):
+            connector = get_connector(cfg)
+        assert isinstance(connector, BugzillaConnector)
+
+    def test_rhkb(self):
+        cfg = ConnectorConfig(
+            name="redhat-kb",
+            connector_type="rhkb",
+            enabled=True,
+            base_url="https://access.redhat.com",
+            auth=AuthConfig(method="cookie", cookie_env="RH_SSO_COOKIE"),
+            rate_limit=100,
+        )
+        with patch.dict("os.environ", {"RH_SSO_COOKIE": "cookie_val"}):
+            connector = get_connector(cfg)
+        assert isinstance(connector, RHKBConnector)
 
     def test_unknown_type(self):
         cfg = _redmine_config()

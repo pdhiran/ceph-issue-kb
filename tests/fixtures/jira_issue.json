@@ -1,0 +1,104 @@
+{
+  "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+  "id": "10234",
+  "self": "https://ibm-ceph.atlassian.net/rest/api/2/issue/10234",
+  "key": "IBMCEPH-1234",
+  "fields": {
+    "summary": "RGW: bucket resharding fails with ENOENT on multisite secondary",
+    "description": "When performing dynamic bucket resharding on a multisite secondary zone, the operation fails with:\n\n```\n2024-10-20 14:30:12.345 7f1234567890 0 ERROR: get_bucket_info on bucket=test-bucket returned err=-2\n```\n\nSteps to reproduce:\n1. Configure multisite with two zones\n2. Enable dynamic resharding on secondary\n3. Write enough objects to trigger reshard\n\nExpected: reshard completes successfully\nActual: ENOENT error, bucket becomes inaccessible",
+    "status": {
+      "self": "https://ibm-ceph.atlassian.net/rest/api/2/status/10001",
+      "name": "In Progress",
+      "id": "10001",
+      "statusCategory": {
+        "id": 4,
+        "key": "indeterminate",
+        "name": "In Progress"
+      }
+    },
+    "priority": {
+      "self": "https://ibm-ceph.atlassian.net/rest/api/2/priority/2",
+      "name": "High",
+      "id": "2"
+    },
+    "resolution": null,
+    "issuetype": {
+      "self": "https://ibm-ceph.atlassian.net/rest/api/2/issuetype/1",
+      "id": "1",
+      "name": "Bug"
+    },
+    "project": {
+      "self": "https://ibm-ceph.atlassian.net/rest/api/2/project/10000",
+      "id": "10000",
+      "key": "IBMCEPH",
+      "name": "IBM Ceph"
+    },
+    "reporter": {
+      "displayName": "Pawan Dhiran",
+      "emailAddress": "pawan@example.com",
+      "accountId": "abc123"
+    },
+    "assignee": {
+      "displayName": "Casey Bodley",
+      "emailAddress": "casey@example.com",
+      "accountId": "def456"
+    },
+    "created": "2024-10-20T08:15:00.000+0000",
+    "updated": "2024-10-22T16:45:00.000+0000",
+    "components": [
+      {"name": "RGW"},
+      {"name": "Multisite"}
+    ],
+    "labels": ["resharding", "multisite", "reef"],
+    "fixVersions": [
+      {"name": "18.2.5", "id": "10100"}
+    ],
+    "versions": [
+      {"name": "18.2.4", "id": "10099"}
+    ],
+    "comment": {
+      "comments": [
+        {
+          "id": "20001",
+          "author": {
+            "displayName": "Casey Bodley",
+            "accountId": "def456"
+          },
+          "body": "I can reproduce this. The issue is that the secondary zone's bucket instance info gets stale during resharding sync. The metadata sync needs to handle the ENOENT gracefully and re-fetch.",
+          "created": "2024-10-20T14:30:00.000+0000",
+          "updated": "2024-10-20T14:30:00.000+0000"
+        },
+        {
+          "id": "20002",
+          "author": {
+            "displayName": "Pawan Dhiran",
+            "accountId": "abc123"
+          },
+          "body": "Confirmed workaround: manually run `radosgw-admin bucket reshard --bucket=test-bucket --num-shards=32` on the secondary zone after the primary reshard completes.",
+          "created": "2024-10-21T09:00:00.000+0000",
+          "updated": "2024-10-21T09:00:00.000+0000"
+        }
+      ],
+      "total": 2,
+      "maxResults": 50,
+      "startAt": 0
+    },
+    "issuelinks": [
+      {
+        "id": "30001",
+        "type": {
+          "id": "10000",
+          "name": "Relates",
+          "inward": "relates to",
+          "outward": "relates to"
+        },
+        "outwardIssue": {
+          "key": "IBMCEPH-1100",
+          "fields": {
+            "summary": "Multisite metadata sync lag during resharding"
+          }
+        }
+      }
+    ]
+  }
+}

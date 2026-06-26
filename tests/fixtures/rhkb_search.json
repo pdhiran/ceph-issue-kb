@@ -1,0 +1,28 @@
+{
+  "response": {
+    "numFound": 2,
+    "start": 0,
+    "docs": [
+      {
+        "id": "7045678",
+        "uri": "/solutions/7045678",
+        "title": "How to recover from a stuck PG in Ceph after OSD failure",
+        "abstract": "This article describes how to identify and recover placement groups (PGs) stuck in degraded, inconsistent, or peering state after an OSD failure.",
+        "documentKind": "Solution",
+        "lastModifiedDate": "2024-10-15T12:00:00Z",
+        "product": "Red Hat Ceph Storage",
+        "version": "7"
+      },
+      {
+        "id": "7045500",
+        "uri": "/solutions/7045500",
+        "title": "CephFS client eviction causes application hang with kernel client",
+        "abstract": "When a CephFS client is evicted by the MDS, applications using the kernel mount experience a hang rather than receiving an error.",
+        "documentKind": "Solution",
+        "lastModifiedDate": "2024-10-12T08:30:00Z",
+        "product": "Red Hat Ceph Storage",
+        "version": "7"
+      }
+    ]
+  }
+}

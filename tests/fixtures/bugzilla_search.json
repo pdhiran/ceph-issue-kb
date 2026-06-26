@@ -1,0 +1,35 @@
+{
+  "bugs": [
+    {
+      "id": 2189456,
+      "product": "Red Hat Ceph Storage",
+      "component": "OSD",
+      "version": "7.1",
+      "status": "ASSIGNED",
+      "resolution": "",
+      "severity": "high",
+      "priority": "high",
+      "summary": "OSD memory leak in BlueStore cache during recovery after ungraceful shutdown",
+      "creator": "user1@redhat.com",
+      "assigned_to": "user2@redhat.com",
+      "creation_time": "2024-10-10T09:30:00Z",
+      "last_change_time": "2024-10-18T15:45:00Z"
+    },
+    {
+      "id": 2189400,
+      "product": "Red Hat Ceph Storage",
+      "component": "RGW",
+      "version": "7.0",
+      "status": "ON_QA",
+      "resolution": "",
+      "severity": "medium",
+      "priority": "medium",
+      "summary": "RGW multipart upload leaves orphan parts on failure",
+      "creator": "user3@redhat.com",
+      "assigned_to": "user4@redhat.com",
+      "creation_time": "2024-10-05T11:20:00Z",
+      "last_change_time": "2024-10-16T10:00:00Z"
+    }
+  ],
+  "faults": []
+}

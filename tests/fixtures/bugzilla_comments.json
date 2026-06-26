@@ -1,0 +1,26 @@
+{
+  "bugs": {
+    "2189456": {
+      "comments": [
+        {
+          "id": 16500001,
+          "bug_id": 2189456,
+          "creator": "user1@redhat.com",
+          "creation_time": "2024-10-10T09:30:00Z",
+          "text": "Description of problem:\nAfter an ungraceful OSD shutdown (power loss or SIGKILL), the OSD process leaks memory on restart during recovery. The BlueStore cache grows unbounded.\n\nVersion-Release number of selected component:\nceph-18.2.4-1.el9cp\n\nHow reproducible:\nAlways\n\nSteps to Reproduce:\n1. Start cluster with 3 OSDs\n2. Write 100GB of data\n3. Kill OSD.0 with SIGKILL\n4. Restart OSD.0\n5. Monitor RSS memory during recovery\n\nActual results:\nMemory grows from 4GB to 32GB+ during recovery\n\nExpected results:\nMemory should stay bounded by bluestore_cache_size",
+          "is_private": false,
+          "count": 0
+        },
+        {
+          "id": 16500002,
+          "bug_id": 2189456,
+          "creator": "user2@redhat.com",
+          "creation_time": "2024-10-12T14:00:00Z",
+          "text": "Confirmed on RHCS 7.1. The issue is in BlueStore::_do_remove_collection() — the cache entries for removed collections are not being evicted during recovery. This causes the cache to grow without bound.\n\nWorkaround: set bluestore_cache_autotune=false and bluestore_cache_size_ssd=4294967296 to cap at 4GB.",
+          "is_private": false,
+          "count": 1
+        }
+      ]
+    }
+  }
+}

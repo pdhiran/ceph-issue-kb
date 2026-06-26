@@ -9,10 +9,16 @@ from __future__ import annotations
 
 from ceph_issue_kb.config import ConnectorConfig
 from ceph_issue_kb.connectors.base import BaseConnector, ConnectorError
+from ceph_issue_kb.connectors.bugzilla import BugzillaConnector
+from ceph_issue_kb.connectors.jira import JiraConnector
 from ceph_issue_kb.connectors.redmine import RedmineConnector
+from ceph_issue_kb.connectors.rhkb import RHKBConnector
 
 _CONNECTOR_TYPES: dict[str, type[BaseConnector]] = {
     "redmine": RedmineConnector,
+    "jira": JiraConnector,
+    "bugzilla": BugzillaConnector,
+    "rhkb": RHKBConnector,
 }
 
 
