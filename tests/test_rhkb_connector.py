@@ -218,6 +218,7 @@ class TestRHKBHealth:
         )
         h = connector.health()
         assert h["ok"] is True
+        assert h["total_issues"] == 245
         assert "245" in h["message"]
 
     @responses.activate
@@ -229,3 +230,4 @@ class TestRHKBHealth:
         )
         h = connector.health()
         assert h["ok"] is False
+        assert h["total_issues"] == 0

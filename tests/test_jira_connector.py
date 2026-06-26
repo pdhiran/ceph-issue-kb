@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 import responses
+from urllib.parse import unquote_plus
 
 from ceph_issue_kb.config import AuthConfig, ConnectorConfig
 from ceph_issue_kb.connectors.base import ConnectorError
@@ -220,6 +221,36 @@ class TestJiraFetchUpdates:
         assert len(results) == 2
         request = responses.calls[0].request
         assert "2024-10-01" in request.url
+
+
+class TestJiraJqlEscaping:
+    def test_escape_jql_double_quotes(self):
+        assert JiraConnector._escape_jql('foo"bar') == 'foo\\"bar'
+
+    def test_escape_jql_backslash(self):
+        assert JiraConnector._escape_jql("foo\\bar") == "foo\\\\bar"
+
+    def test_escape_jql_combined(self):
+        assert JiraConnector._escape_jql('a\\"b') == 'a\\\\\\"b'
+
+    @responses.activate
+    def test_search_with_quotes_in_query(self, connector):
+        fixture = {
+            "startAt": 0,
+            "maxResults": 50,
+            "total": 0,
+            "issues": [],
+        }
+        responses.add(
+            responses.GET,
+            f"{BASE_URL}/rest/api/2/search",
+            json=fixture,
+            status=200,
+        )
+        list(connector.search('error "null pointer"'))
+        request = responses.calls[0].request
+        decoded = unquote_plus(request.url)
+        assert '\\"null pointer\\"' in decoded
 
 
 class TestJiraHealth:

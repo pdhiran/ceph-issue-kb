@@ -59,7 +59,9 @@ class BugzillaConnector(BaseConnector):
 
     def authenticate(self) -> None:
         """Validate API key by fetching the authenticated user."""
-        data = self._get("/rest/valid_login", params={"login": "token_check"})
+        data = self._get("/rest/whoami")
+        if not data.get("id"):
+            raise ConnectorError("Bugzilla authentication failed: no user ID in response")
         logger.debug("Bugzilla authentication check complete: %s", data)
 
     def search(
@@ -120,18 +122,21 @@ class BugzillaConnector(BaseConnector):
                 params={"product": self.product, "limit": 1},
             )
             bugs = data.get("bugs", [])
+            total = data.get("total_matches", len(bugs))
             return {
                 "ok": True,
                 "source": self.name,
+                "total_issues": total,
                 "message": (
                     f"Connected; product '{self.product}' accessible "
-                    f"({len(bugs)} bug(s) returned in probe)"
+                    f"({total} bug(s) found)"
                 ),
             }
         except ConnectorError as exc:
             return {
                 "ok": False,
                 "source": self.name,
+                "total_issues": 0,
                 "message": str(exc),
             }
 
@@ -147,13 +152,17 @@ class BugzillaConnector(BaseConnector):
             bugs = data.get("bugs", [])
             if not bugs:
                 break
+
+            bug_ids = [str(bug.get("id", "")) for bug in bugs]
+            comments_path = f"/rest/bug/{','.join(bug_ids)}/comment"
+            comments_data = self._get(comments_path)
+            all_comments = comments_data.get("bugs", {})
+
             for bug in bugs:
                 if limit is not None and yielded >= limit:
                     return
                 bug_id = str(bug.get("id", ""))
-                comments_data = self._get(f"/rest/bug/{bug_id}/comment")
-                bug_comments = comments_data.get("bugs", {})
-                comments = bug_comments.get(bug_id, {}).get("comments", [])
+                comments = all_comments.get(bug_id, {}).get("comments", [])
                 bug["comments"] = comments
                 yield RawIssue(
                     source=self.name,

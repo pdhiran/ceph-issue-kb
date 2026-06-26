@@ -18,6 +18,7 @@ import logging
 import time
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -43,8 +44,11 @@ class RHKBConnector(BaseConnector):
         self._session.headers.update(
             {"Accept": "application/json"}
         )
+        hostname = urlparse(self.base_url).hostname or ""
+        parts = hostname.split(".")
+        cookie_domain = "." + ".".join(parts[-2:]) if len(parts) >= 2 else hostname
         self._session.cookies.set(
-            "rh_sso", self._credentials.cookie, domain=".redhat.com"
+            "rh_sso", self._credentials.cookie, domain=cookie_domain
         )
         self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
@@ -107,8 +111,9 @@ class RHKBConnector(BaseConnector):
         Note: The RH KB API has limited date filtering. We use
         start_date as an approximation. Results may not be exhaustive.
         """
+        default_query = self.config.extra.get("default_query", "ceph")
         params: dict[str, Any] = {
-            "q": "ceph",
+            "q": default_query,
             "rows": PAGE_SIZE,
             "documentKind": "Solution",
             "start_date": since,
@@ -123,6 +128,7 @@ class RHKBConnector(BaseConnector):
             return {
                 "ok": True,
                 "source": self.name,
+                "total_issues": num_found,
                 "message": (
                     f"Connected; ~{num_found} articles matching 'ceph'"
                 ),
@@ -131,6 +137,7 @@ class RHKBConnector(BaseConnector):
             return {
                 "ok": False,
                 "source": self.name,
+                "total_issues": 0,
                 "message": str(exc),
             }
 

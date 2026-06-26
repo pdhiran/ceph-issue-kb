@@ -14,7 +14,7 @@ import responses
 
 from ceph_issue_kb.config import AuthConfig, ConnectorConfig
 from ceph_issue_kb.connectors.base import ConnectorError
-from ceph_issue_kb.connectors.bugzilla import BugzillaConnector
+from ceph_issue_kb.connectors.bugzilla import PAGE_SIZE, BugzillaConnector
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BASE_URL = "https://bugzilla.redhat.com"
@@ -58,17 +58,28 @@ class TestBugzillaAuthenticate:
     def test_authenticate_success(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/valid_login",
-            json={"result": True},
+            f"{BASE_URL}/rest/whoami",
+            json={"id": 12345, "real_name": "Test User", "name": "testuser"},
             status=200,
         )
         connector.authenticate()
 
     @responses.activate
+    def test_authenticate_no_user_id(self, connector):
+        responses.add(
+            responses.GET,
+            f"{BASE_URL}/rest/whoami",
+            json={"error": True, "message": "invalid key"},
+            status=200,
+        )
+        with pytest.raises(ConnectorError, match="authentication failed"):
+            connector.authenticate()
+
+    @responses.activate
     def test_authenticate_failure(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/valid_login",
+            f"{BASE_URL}/rest/whoami",
             status=401,
         )
         with pytest.raises(ConnectorError, match="Bugzilla request failed"):
@@ -129,18 +140,14 @@ class TestBugzillaSearch:
         search_fixture = json.loads(
             (FIXTURES / "bugzilla_search.json").read_text()
         )
-        comments1 = {
+        batch_comments = {
             "bugs": {
                 "2189456": {
                     "comments": [{"id": 1, "text": "comment 1", "creator": "u@rh.com"}]
-                }
-            }
-        }
-        comments2 = {
-            "bugs": {
+                },
                 "2189400": {
                     "comments": [{"id": 2, "text": "comment 2", "creator": "u@rh.com"}]
-                }
+                },
             }
         }
         responses.add(
@@ -151,14 +158,8 @@ class TestBugzillaSearch:
         )
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/bug/2189456/comment",
-            json=comments1,
-            status=200,
-        )
-        responses.add(
-            responses.GET,
-            f"{BASE_URL}/rest/bug/2189400/comment",
-            json=comments2,
+            f"{BASE_URL}/rest/bug/2189456,2189400/comment",
+            json=batch_comments,
             status=200,
         )
         results = list(connector.search("OSD memory"))
@@ -184,8 +185,11 @@ class TestBugzillaSearch:
         search_fixture = json.loads(
             (FIXTURES / "bugzilla_search.json").read_text()
         )
-        comments1 = {
-            "bugs": {"2189456": {"comments": []}}
+        batch_comments = {
+            "bugs": {
+                "2189456": {"comments": []},
+                "2189400": {"comments": []},
+            }
         }
         responses.add(
             responses.GET,
@@ -195,8 +199,8 @@ class TestBugzillaSearch:
         )
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/bug/2189456/comment",
-            json=comments1,
+            f"{BASE_URL}/rest/bug/2189456,2189400/comment",
+            json=batch_comments,
             status=200,
         )
         results = list(connector.search("OSD", limit=1))
@@ -209,8 +213,12 @@ class TestBugzillaFetchUpdates:
         search_fixture = json.loads(
             (FIXTURES / "bugzilla_search.json").read_text()
         )
-        comments1 = {"bugs": {"2189456": {"comments": []}}}
-        comments2 = {"bugs": {"2189400": {"comments": []}}}
+        batch_comments = {
+            "bugs": {
+                "2189456": {"comments": []},
+                "2189400": {"comments": []},
+            }
+        }
         responses.add(
             responses.GET,
             f"{BASE_URL}/rest/bug",
@@ -219,14 +227,8 @@ class TestBugzillaFetchUpdates:
         )
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/bug/2189456/comment",
-            json=comments1,
-            status=200,
-        )
-        responses.add(
-            responses.GET,
-            f"{BASE_URL}/rest/bug/2189400/comment",
-            json=comments2,
+            f"{BASE_URL}/rest/bug/2189456,2189400/comment",
+            json=batch_comments,
             status=200,
         )
         results = list(connector.fetch_updates("2024-10-01"))
@@ -241,11 +243,15 @@ class TestBugzillaHealth:
         responses.add(
             responses.GET,
             f"{BASE_URL}/rest/bug",
-            json={"bugs": [{"id": 1, "summary": "test"}]},
+            json={
+                "bugs": [{"id": 1, "summary": "test"}],
+                "total_matches": 42,
+            },
             status=200,
         )
         h = connector.health()
         assert h["ok"] is True
+        assert h["total_issues"] == 42
         assert "Red Hat Ceph Storage" in h["message"]
 
     @responses.activate
@@ -257,3 +263,54 @@ class TestBugzillaHealth:
         )
         h = connector.health()
         assert h["ok"] is False
+        assert h["total_issues"] == 0
+
+
+class TestBugzillaPagination:
+    @responses.activate
+    def test_search_pagination(self, connector):
+        """Multiple pages are fetched; all results are yielded."""
+        page1_bugs = [
+            {"id": 100 + i, "summary": f"bug {i}"}
+            for i in range(PAGE_SIZE)
+        ]
+        page2_bugs = [
+            {"id": 200, "summary": "last bug"},
+        ]
+        page1_ids = ",".join(str(b["id"]) for b in page1_bugs)
+        page1_comments = {
+            "bugs": {
+                str(b["id"]): {"comments": []} for b in page1_bugs
+            }
+        }
+        page2_comments = {
+            "bugs": {"200": {"comments": []}}
+        }
+        responses.add(
+            responses.GET,
+            f"{BASE_URL}/rest/bug",
+            json={"bugs": page1_bugs},
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            f"{BASE_URL}/rest/bug/{page1_ids}/comment",
+            json=page1_comments,
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            f"{BASE_URL}/rest/bug",
+            json={"bugs": page2_bugs},
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            f"{BASE_URL}/rest/bug/200/comment",
+            json=page2_comments,
+            status=200,
+        )
+        results = list(connector.search("test", limit=PAGE_SIZE + 1))
+        assert len(results) == PAGE_SIZE + 1
+        assert results[0].source_id == "100"
+        assert results[-1].source_id == "200"

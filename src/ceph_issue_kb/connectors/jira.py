@@ -36,6 +36,11 @@ class JiraConnector(BaseConnector):
         self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
 
+    @staticmethod
+    def _escape_jql(value: str) -> str:
+        """Escape a string for safe use inside a JQL quoted literal."""
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_request
         if elapsed < self._min_interval:
@@ -64,7 +69,9 @@ class JiraConnector(BaseConnector):
 
         Paginates through results up to *limit* total issues.
         """
-        jql = f'project = {self.project} AND text ~ "{query}"'
+        project = self._escape_jql(self.project)
+        q = self._escape_jql(query)
+        jql = f'project = "{project}" AND text ~ "{q}"'
         if since:
             jql += f' AND updated >= "{since}"'
         jql += " ORDER BY updated DESC"
@@ -89,8 +96,9 @@ class JiraConnector(BaseConnector):
 
         Paginates through the full result set.
         """
+        project = self._escape_jql(self.project)
         jql = (
-            f'project = {self.project} AND updated >= "{since}" '
+            f'project = "{project}" AND updated >= "{since}" '
             f"ORDER BY updated DESC"
         )
         yield from self._paginate(jql, limit=None)
@@ -98,7 +106,8 @@ class JiraConnector(BaseConnector):
     def health(self) -> dict:
         """Check connectivity to JIRA."""
         try:
-            jql = f"project = {self.project} ORDER BY updated DESC"
+            project = self._escape_jql(self.project)
+            jql = f'project = "{project}" ORDER BY updated DESC'
             data = self._get(
                 "/rest/api/2/search",
                 params={"jql": jql, "maxResults": 0},
@@ -122,7 +131,7 @@ class JiraConnector(BaseConnector):
         """Paginate through JIRA search results using startAt/maxResults."""
         start_at = 0
         yielded = 0
-        max_results = min(limit, PAGE_SIZE) if limit else PAGE_SIZE
+        max_results = min(limit, PAGE_SIZE) if limit is not None else PAGE_SIZE
         while True:
             data = self._get(
                 "/rest/api/2/search",
