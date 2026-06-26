@@ -75,7 +75,25 @@ def create_mcp_server(kb: KnowledgeBase) -> FastMCP:
 
     Separated from ``main()`` so tests can create a server with a mock KB.
     """
-    mcp = FastMCP("ceph-issue-kb")
+    from mcp.types import Icon
+
+    ceph_icon = Icon(
+        src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCIgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4Ij48Y2lyY2xlIGN4PSIyNCIgY3k9IjI0IiByPSIyMiIgZmlsbD0iI0VGNTAzQSIvPjx0ZXh0IHg9IjI0IiB5PSIzMiIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+STwvdGV4dD48L3N2Zz4=",
+        mimeType="image/svg+xml",
+    )
+
+    mcp = FastMCP(
+        "Ceph Issue Intelligence KB",
+        instructions=(
+            "Engineering issue intelligence for Ceph storage. "
+            "Use this MCP when investigating test failures, debugging clusters, "
+            "or searching for known issues, workarounds, and fixes across "
+            "JIRA, Ceph Tracker, Red Hat Bugzilla, and Red Hat KB. "
+            "Key tools: search_issues, find_similar_issue, is_known_issue, "
+            "find_workaround, search_stacktrace, search_health_warning."
+        ),
+        icons=[ceph_icon],
+    )
 
     @mcp.tool()
     def search_issues(
