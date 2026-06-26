@@ -1,0 +1,44 @@
+{
+  "built_at": "2026-06-26T12:35:42.872307+00:00",
+  "total_issues": 189,
+  "sources": {
+    "ibm-jira": {
+      "fetched": 189,
+      "normalized": 189
+    }
+  },
+  "components": [
+    "atollon-hardware",
+    "atollon-utils",
+    "build",
+    "call-home-agent",
+    "ceph",
+    "ceph provisioner",
+    "ceph-dashboard",
+    "ceph-mgr/core",
+    "ceph-mgr/crash",
+    "ceph-mgr/orchestrator",
+    "ceph-mgr/pg_autoscaler",
+    "ceph-mgr/progress",
+    "ceph-volume",
+    "cephadm",
+    "cephfs",
+    "crimson",
+    "documentation",
+    "fsal_ceph",
+    "jira_change_requests",
+    "management & ui",
+    "multi-cluster manager",
+    "nfs-ganesha",
+    "nfs-ganesha/ceph",
+    "nvmeof",
+    "rados",
+    "rbd",
+    "rgw",
+    "rgw-multisite",
+    "security",
+    "smb",
+    "unclassified",
+    "vmware-vsphere plugin"
+  ]
+}

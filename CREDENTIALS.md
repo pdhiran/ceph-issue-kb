@@ -9,7 +9,7 @@ This guide walks you through generating and configuring credentials for each iss
 | Ceph Tracker | None | — | — |
 | IBM Ceph JIRA | API Token | Email + token | `JIRA_USERNAME`, `JIRA_API_TOKEN` |
 | Red Hat Bugzilla | API Key | API key | `BUGZILLA_API_KEY` |
-| Red Hat KB | Session Cookie | SSO cookie | `RH_SSO_COOKIE` |
+| Red Hat KB | Offline Token | API token | `RH_OFFLINE_TOKEN` |
 
 ## Step 1: Create a `.env` file
 
@@ -101,28 +101,25 @@ print(conn.health())
 
 ## Red Hat Knowledge Base
 
-### Get Session Cookie
+### Generate Offline API Token
 
-The Red Hat KB uses cookie-based authentication via Red Hat SSO. This is the most fragile method — cookies expire and must be refreshed periodically.
+The RH KB connector uses an **offline API token** that doesn't expire — much more reliable than browser cookies.
 
-1. Log in to [Red Hat Customer Portal](https://access.redhat.com) in your browser
-2. Open browser DevTools:
-   - **Chrome/Edge**: `F12` → **Application** tab → **Cookies** → `https://access.redhat.com`
-   - **Firefox**: `F12` → **Storage** tab → **Cookies** → `https://access.redhat.com`
-   - **Safari**: **Develop** → **Show Web Inspector** → **Storage** → **Cookies**
-3. Find the cookie named `rh_jwt` (a long JWT token starting with `eyJ...`)
-4. Copy its **Value**
+1. Go to [Red Hat API Tokens](https://access.redhat.com/management/api)
+2. Log in with your Red Hat account
+3. Click **"Generate Token"**
+4. Copy the offline token (long string starting with `eyJ...`)
 
 ### Add to `.env`
 
 ```bash
-RH_SSO_COOKIE=eyJhbGciOiJSUzI1NiIsInR5cCI...your_cookie_here
+RH_OFFLINE_TOKEN=eyJhbGciOiJSUzI1NiIsInR5cCI...your_token_here
 ```
 
 ### Verify
 
 ```bash
-source .env && export RH_SSO_COOKIE
+source .env && export RH_OFFLINE_TOKEN
 python3 -c "
 from ceph_issue_kb.config import load_config
 from ceph_issue_kb.connectors import get_connector
@@ -133,11 +130,17 @@ print(conn.health())
 "
 ```
 
+Expected output:
+```
+{'ok': True, 'source': 'redhat-kb', 'total_issues': 48128, 'message': "Connected; ~48128 articles matching 'ceph'"}
+```
+
 ### Notes
-- **Cookies expire** — typically after a few hours or when your browser session ends
-- You will need to repeat steps 1-4 when the cookie expires
-- If you get authentication errors, refresh the cookie
+- **Offline tokens don't expire** — you only generate it once
+- Token can be revoked at https://access.redhat.com/management/api
+- Uses OAuth2: your offline token is exchanged for a short-lived bearer token automatically
 - Requires an active Red Hat Customer Portal subscription
+- Searches the Hydra KCS API for Ceph-related knowledge articles
 
 ---
 
@@ -164,7 +167,7 @@ connectors:
 
 ```bash
 # Load credentials
-source .env && export JIRA_USERNAME JIRA_API_TOKEN BUGZILLA_API_KEY RH_SSO_COOKIE
+source .env && export JIRA_USERNAME JIRA_API_TOKEN BUGZILLA_API_KEY RH_OFFLINE_TOKEN
 
 # Index all enabled connectors
 python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
@@ -182,7 +185,7 @@ python3 index_issues.py --connector redhat-kb --verbose
 |-------|-------|-----|
 | `AuthError: Environment variable JIRA_API_TOKEN is not set or empty` | Env var not exported | Run `source .env && export JIRA_API_TOKEN` |
 | `ConnectorError: Bugzilla authentication failed` | Invalid or expired API key | Regenerate at Bugzilla preferences |
-| `ConnectorError: RHKB request failed: 401` | Expired SSO cookie | Re-extract `rh_sso` cookie from browser |
+| `ConnectorError: RHKB request failed: 401` | Invalid offline token | Regenerate at https://access.redhat.com/management/api |
 | `ConnectorError: Redmine request failed: 403` | Rate limited | Wait and retry, or reduce `rate_limit` in config |
 | `ConnectorError: JIRA request failed: 401` | Wrong username or token | Verify email and regenerate token |
 
