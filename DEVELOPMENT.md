@@ -343,25 +343,41 @@ Test coverage (359 tests total):
 ### Rebuilding the Issue Index
 
 ```bash
-# Full rebuild from all sources
-python3 index_issues.py --config connectors.yaml --verbose
+# Full rebuild from all sources (requires credentials — see CREDENTIALS.md)
+source .env && export JIRA_USERNAME JIRA_API_TOKEN BUGZILLA_API_KEY RH_SSO_COOKIE
+python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 
 # Single source only
 python3 index_issues.py --connector ceph-tracker --verbose
 
 # Incremental update (issues since a date)
-python3 index_issues.py --config connectors.yaml --since 2025-01-01 --verbose
-
-# Custom output directory
-python3 index_issues.py --output-dir knowledge/issues-2025-2026 --verbose
+python3 index_issues.py --config connectors.yaml --since 2025-06-01 --verbose
 ```
 
-### Adding a New Ceph Version Range
+### Daily Index Updates (Maintainer)
 
-1. Update `connectors.yaml` with the target date range
-2. Run `index_issues.py` with `--since` to fetch new issues
-3. The new index is stored alongside existing ones in `knowledge/`
-4. The server auto-selects the latest index
+The pre-built index ships with the repo so users can use it immediately. As maintainer, run daily updates to keep it current:
+
+```bash
+# Fetch yesterday's updates, commit, and push
+./update_index.sh
+
+# Fetch last 7 days
+./update_index.sh 7
+
+# Fetch since a specific date
+./update_index.sh 2025-06-01
+```
+
+Or set up a cron job:
+```bash
+# Run daily at 2 AM
+0 2 * * * cd /path/to/ceph-issue-kb && ./update_index.sh >> /var/log/ceph-issue-kb-update.log 2>&1
+```
+
+### Pre-built Index
+
+The `knowledge/` directory is committed to the repo. Users clone and immediately have a searchable issue knowledge base — no API keys or indexing required. The maintainer keeps it up to date.
 
 ### Updating Connectors
 

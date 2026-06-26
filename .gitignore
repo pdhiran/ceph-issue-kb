@@ -18,5 +18,7 @@ venv/
 htmlcov/
 .coverage
 *.log
-knowledge/
+# knowledge/ is committed (pre-built index ships with the repo)
+# Only ignore temporary/partial index builds
+knowledge/**/tmp/
 *.onnx
