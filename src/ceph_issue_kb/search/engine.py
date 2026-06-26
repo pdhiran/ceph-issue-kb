@@ -325,29 +325,90 @@ class SearchEngine:
 
     @classmethod
     def load(cls, directory: Path) -> "SearchEngine":
-        """Restore a SearchEngine from a saved knowledge directory."""
+        """Restore a SearchEngine from a saved knowledge directory.
+
+        Handles two layouts:
+        - **Single-source**: ``directory/issues.json`` exists directly.
+        - **Multi-source**: ``directory`` contains subdirectories each with
+          their own ``issues.json`` (and optional ``faiss.index``).
+        """
         engine = cls()
 
+        # Collect source directories to load from.
         issues_path = directory / "issues.json"
         if issues_path.exists():
-            issues_data = json.loads(issues_path.read_text())
+            source_dirs = [directory]
+        else:
+            source_dirs = sorted(
+                sub for sub in directory.iterdir()
+                if sub.is_dir() and (sub / "issues.json").exists()
+            )
+
+        all_issues: list[NormalizedIssue] = []
+        for src_dir in source_dirs:
+            src_issues_path = src_dir / "issues.json"
+            issues_data = json.loads(src_issues_path.read_text())
             issues = [_dict_to_issue(d) for d in issues_data]
-            engine._issues = {issue.entity_id: issue for issue in issues}
-            engine._build_bm25(issues)
+            all_issues.extend(issues)
+            logger.info(
+                "Loaded %d issues from %s", len(issues), src_dir.name,
+            )
 
-        faiss_path = directory / "faiss.index"
-        faiss_ids_path = directory / "faiss_ids.json"
-        if faiss_path.exists() and faiss_ids_path.exists():
-            try:
-                import faiss  # type: ignore[import-untyped]
+        engine._issues = {issue.entity_id: issue for issue in all_issues}
+        if all_issues:
+            engine._build_bm25(all_issues)
 
-                engine._faiss_index = faiss.read_index(str(faiss_path))
-                engine._faiss_entity_ids = json.loads(faiss_ids_path.read_text())
-                engine._faiss_dim = engine._faiss_index.d
-            except ImportError:
-                logger.warning("faiss-cpu not installed; semantic search disabled")
+        # Load and merge FAISS indices from all source directories.
+        engine._load_faiss_indices(source_dirs)
 
         return engine
+
+    def _load_faiss_indices(self, source_dirs: list[Path]) -> None:
+        """Load and merge FAISS indices from one or more source directories."""
+        try:
+            import numpy as np
+            import faiss  # type: ignore[import-untyped]
+        except ImportError:
+            logger.warning("faiss-cpu not installed; semantic search disabled")
+            return
+
+        all_entity_ids: list[str] = []
+        all_vectors: list[Any] = []
+        dim: int | None = None
+
+        for src_dir in source_dirs:
+            faiss_path = src_dir / "faiss.index"
+            faiss_ids_path = src_dir / "faiss_ids.json"
+            if not (faiss_path.exists() and faiss_ids_path.exists()):
+                continue
+
+            idx = faiss.read_index(str(faiss_path))
+            ids = json.loads(faiss_ids_path.read_text())
+
+            if idx.ntotal == 0:
+                continue
+
+            if dim is None:
+                dim = idx.d
+            elif idx.d != dim:
+                logger.warning(
+                    "Skipping %s: dimension mismatch (%d vs %d)",
+                    src_dir.name, idx.d, dim,
+                )
+                continue
+
+            vectors = faiss.rev_swig_ptr(idx.get_xb(), idx.ntotal * dim)
+            vectors = np.array(vectors, dtype=np.float32).reshape(idx.ntotal, dim)
+            all_vectors.append(vectors)
+            all_entity_ids.extend(ids)
+
+        if all_vectors and dim is not None:
+            merged = np.vstack(all_vectors).astype(np.float32)
+            index = faiss.IndexFlatIP(dim)
+            index.add(merged)
+            self._faiss_index = index
+            self._faiss_entity_ids = all_entity_ids
+            self._faiss_dim = dim
 
 
 # ---------------------------------------------------------------------------

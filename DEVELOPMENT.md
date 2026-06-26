@@ -102,16 +102,19 @@ ceph-issue-kb/
 ├── examples/                   # Integration examples
 │   └── agent_integration.py    # Python client, LangChain/CrewAI tools
 │
-├── knowledge/                  # Built indices (gitignored)
+├── knowledge/                  # Built indices (committed — ships pre-built)
 │   └── issues-2024-2025/
-│       ├── ceph-tracker/
-│       │   ├── issues.json
-│       │   └── faiss.index
 │       ├── ibm-jira/
+│       │   ├── issues.json
+│       │   ├── faiss.index
+│       │   └── faiss_ids.json
 │       ├── redhat-bugzilla/
+│       │   └── issues.json
 │       ├── redhat-kb/
+│       │   ├── issues.json
+│       │   ├── faiss.index
+│       │   └── faiss_ids.json
 │       ├── merged_bm25_index.json
-│       ├── relationships.json
 │       └── metadata.json
 │
 ├── SPEC.md                     # MCP contract documentation
@@ -127,20 +130,17 @@ ceph-issue-kb/
 ```
 knowledge/issues-{date_range}/
 ├── metadata.json               # IndexMetadata: date range, connector stats, model info
-├── merged_bm25_index.json      # Cross-source BM25 index for keyword search
-├── relationships.json          # Cross-source issue relationships (duplicates, related)
-├── ceph-tracker/
-│   ├── issues.json             # [{entity_id, title, description, signals, ...}]
-│   └── faiss.index             # FAISS IndexFlatIP (cosine on L2-normalized vectors)
+├── merged_bm25_index.json      # Cross-source BM25 entity ID index
 ├── ibm-jira/
-│   ├── issues.json
-│   └── faiss.index
+│   ├── issues.json             # [{entity_id, title, description, signals, ...}]
+│   ├── faiss.index             # FAISS IndexFlatIP (cosine on L2-normalized vectors)
+│   └── faiss_ids.json          # Entity IDs corresponding to FAISS vectors
 ├── redhat-bugzilla/
-│   ├── issues.json
-│   └── faiss.index
+│   └── issues.json
 └── redhat-kb/
     ├── issues.json
-    └── faiss.index
+    ├── faiss.index
+    └── faiss_ids.json
 ```
 
 Each connector's issues are stored in their own subdirectory. This allows:
@@ -297,7 +297,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Test coverage (359 tests total):
+Test coverage (361 tests total):
 - `test_config.py` — 8 tests (AuthConfig, ConnectorConfig, load_config, validation)
 - `test_connectors.py` — 16 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
 - `test_models.py` — 8 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship, SearchResult)

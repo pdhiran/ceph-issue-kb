@@ -65,7 +65,7 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "total_issues": 15700,
+  "total_issues": 14670,
   "index_status": "loaded",
   "schema_version": "1.0",
   "kb_path": "knowledge/issues-2024-2025"

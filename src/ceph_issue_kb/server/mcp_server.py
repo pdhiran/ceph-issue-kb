@@ -26,20 +26,47 @@ logger = logging.getLogger(__name__)
 
 
 def _find_kb_path(explicit: str | None = None) -> Path | None:
-    """Resolve the knowledge-base directory, checking common locations."""
+    """Resolve the knowledge-base directory, checking common locations.
+
+    Returns a directory that either:
+    - Contains ``issues.json`` directly (single-source), or
+    - Contains subdirectories with ``issues.json`` (multi-source).
+    """
     candidates = [
         Path(explicit) if explicit else None,
         Path("knowledge"),
         Path(__file__).resolve().parents[3] / "knowledge",
     ]
     for p in candidates:
-        if p is not None and p.is_dir():
-            subdirs = sorted(p.iterdir())
-            for sub in reversed(subdirs):
-                if sub.is_dir() and (sub / "issues.json").exists():
-                    return sub
-            if (p / "issues.json").exists():
-                return p
+        if p is None or not p.is_dir():
+            continue
+
+        # If this directory itself has issues.json, use it directly.
+        if (p / "issues.json").exists():
+            return p
+
+        # Check for multi-source layout: subdirectories with issues.json.
+        source_dirs = [
+            sub for sub in sorted(p.iterdir())
+            if sub.is_dir() and (sub / "issues.json").exists()
+        ]
+        if source_dirs:
+            return p
+
+        # Check one level deeper (e.g., knowledge/ -> issues-2024-2025/).
+        subdirs = sorted(p.iterdir())
+        for sub in reversed(subdirs):
+            if not sub.is_dir():
+                continue
+            if (sub / "issues.json").exists():
+                return sub
+            inner_sources = [
+                s for s in sorted(sub.iterdir())
+                if s.is_dir() and (s / "issues.json").exists()
+            ]
+            if inner_sources:
+                return sub
+
     return None
 
 

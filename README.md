@@ -124,6 +124,10 @@ Once connected, agents automatically check for known Ceph issues. You can also a
 | IBM Ceph JIRA | 14,037 | Internal Ceph bug tracker and feature requests |
 | Red Hat KB | 633 | Customer-facing knowledge base articles |
 
+## VS Code Extension
+
+Coming soon. See [ceph-doc-kb](https://github.com/pdhiran/ceph-doc-kb) and [ceph-command-kb](https://github.com/pdhiran/ceph-command-kb) for existing VS Code extensions that complement this knowledge base.
+
 ## Documentation
 
 | Document | Description |
