@@ -66,7 +66,7 @@ class TestJiraAuthenticate:
     def test_authenticate_success(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/myself",
+            f"{BASE_URL}/rest/api/3/myself",
             json={"accountId": "abc123", "displayName": "Test User"},
             status=200,
         )
@@ -76,7 +76,7 @@ class TestJiraAuthenticate:
     def test_authenticate_failure(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/myself",
+            f"{BASE_URL}/rest/api/3/myself",
             status=401,
         )
         with pytest.raises(ConnectorError, match="JIRA request failed"):
@@ -89,7 +89,7 @@ class TestJiraFetch:
         fixture = json.loads((FIXTURES / "jira_issue.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/issue/IBMCEPH-1234",
+            f"{BASE_URL}/rest/api/3/issue/IBMCEPH-1234",
             json=fixture,
             status=200,
         )
@@ -104,7 +104,7 @@ class TestJiraFetch:
     def test_fetch_404_raises(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/issue/IBMCEPH-9999",
+            f"{BASE_URL}/rest/api/3/issue/IBMCEPH-9999",
             status=404,
         )
         with pytest.raises(ConnectorError):
@@ -115,7 +115,7 @@ class TestJiraFetch:
         fixture = json.loads((FIXTURES / "jira_issue.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/issue/IBMCEPH-1234",
+            f"{BASE_URL}/rest/api/3/issue/IBMCEPH-1234",
             json=fixture,
             status=200,
         )
@@ -131,7 +131,7 @@ class TestJiraSearch:
         fixture = json.loads((FIXTURES / "jira_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             json=fixture,
             status=200,
         )
@@ -145,7 +145,7 @@ class TestJiraSearch:
         fixture = json.loads((FIXTURES / "jira_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             json=fixture,
             status=200,
         )
@@ -158,7 +158,7 @@ class TestJiraSearch:
         fixture = json.loads((FIXTURES / "jira_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             json=fixture,
             status=200,
         )
@@ -168,36 +168,33 @@ class TestJiraSearch:
     @responses.activate
     def test_search_pagination(self, connector):
         page1 = {
-            "startAt": 0,
-            "maxResults": 1,
-            "total": 2,
             "issues": [
                 {
                     "key": "IBMCEPH-1234",
                     "fields": {"summary": "Issue 1"},
                 }
             ],
+            "nextPageToken": "token-page-2",
+            "isLast": False,
         }
         page2 = {
-            "startAt": 1,
-            "maxResults": 1,
-            "total": 2,
             "issues": [
                 {
                     "key": "IBMCEPH-1220",
                     "fields": {"summary": "Issue 2"},
                 }
             ],
+            "isLast": True,
         }
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             json=page1,
             status=200,
         )
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             json=page2,
             status=200,
         )
@@ -205,6 +202,8 @@ class TestJiraSearch:
         assert len(results) == 2
         assert results[0].source_id == "IBMCEPH-1234"
         assert results[1].source_id == "IBMCEPH-1220"
+        request2 = responses.calls[1].request
+        assert "nextPageToken=token-page-2" in request2.url
 
 
 class TestJiraFetchUpdates:
@@ -213,7 +212,7 @@ class TestJiraFetchUpdates:
         fixture = json.loads((FIXTURES / "jira_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             json=fixture,
             status=200,
         )
@@ -236,14 +235,12 @@ class TestJiraJqlEscaping:
     @responses.activate
     def test_search_with_quotes_in_query(self, connector):
         fixture = {
-            "startAt": 0,
-            "maxResults": 50,
-            "total": 0,
             "issues": [],
+            "isLast": True,
         }
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             json=fixture,
             status=200,
         )
@@ -258,20 +255,22 @@ class TestJiraHealth:
     def test_health_ok(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
-            json={"startAt": 0, "maxResults": 0, "total": 350, "issues": []},
+            f"{BASE_URL}/rest/api/3/search/jql",
+            json={
+                "issues": [{"key": "IBMCEPH-1", "fields": {"summary": "test"}}],
+                "isLast": True,
+            },
             status=200,
         )
         h = connector.health()
         assert h["ok"] is True
-        assert h["total_issues"] == 350
         assert "IBMCEPH" in h["message"]
 
     @responses.activate
     def test_health_failure(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rest/api/2/search",
+            f"{BASE_URL}/rest/api/3/search/jql",
             status=503,
         )
         h = connector.health()

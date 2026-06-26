@@ -48,6 +48,11 @@ class AuthProvider:
                 method="cookie",
                 cookie=self._env(auth_config.cookie_env, "cookie"),
             )
+        if auth_config.method == "offline_token":
+            return Credentials(
+                method="offline_token",
+                token=self._env(auth_config.token_env, "offline token"),
+            )
         raise AuthError(f"Unknown auth method: {auth_config.method}")
 
     @staticmethod

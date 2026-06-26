@@ -45,7 +45,7 @@ class TestRHKBConnectorInit:
         assert connector.base_url == BASE_URL
 
     def test_session_has_cookie(self, connector):
-        cookie = connector._session.cookies.get("rh_sso", domain=".redhat.com")
+        cookie = connector._session.cookies.get("rh_jwt", domain=".redhat.com")
         assert cookie == "test-sso-cookie-value"
 
     def test_session_headers(self, connector):

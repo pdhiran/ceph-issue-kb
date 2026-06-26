@@ -6,7 +6,7 @@ connectors:
     project: ceph
     # auth: null means no authentication required (equivalent to method: "none")
     auth: null
-    rate_limit: 10
+    rate_limit: 2
     since: "2024-01-01"
 
   ibm-jira:
@@ -36,8 +36,10 @@ connectors:
     type: rhkb
     enabled: true
     base_url: https://access.redhat.com
+    # Generate an offline token at https://access.redhat.com/management/api
+    # and set RH_OFFLINE_TOKEN in your environment.
     auth:
-      method: cookie
-      cookie_env: RH_SSO_COOKIE
+      method: offline_token
+      token_env: RH_OFFLINE_TOKEN
     rate_limit: 2
     since: "2024-01-01"

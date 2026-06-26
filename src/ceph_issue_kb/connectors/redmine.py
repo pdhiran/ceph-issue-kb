@@ -4,6 +4,8 @@ The Ceph Tracker at https://tracker.ceph.com is a public Redmine instance.
 No authentication is required for read operations.
 
 Pagination is handled internally — callers iterate until exhaustion.
+Requests use exponential backoff on transient failures to handle the
+tracker's aggressive rate limiting.
 """
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ from collections.abc import Iterator
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ceph_issue_kb.config import ConnectorConfig
 from ceph_issue_kb.connectors.base import BaseConnector, ConnectorError
@@ -23,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 100
 INCLUDE_FIELDS = "journals,relations"
+
+_RETRY_STRATEGY = Retry(
+    total=3,
+    backoff_factor=2,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET"],
+    raise_on_status=False,
+)
+
+_RETRY_DELAYS = (5, 15, 30)
 
 
 class RedmineConnector(BaseConnector):
@@ -35,7 +49,10 @@ class RedmineConnector(BaseConnector):
         self._session.headers.update(
             {"Content-Type": "application/json", "Accept": "application/json"}
         )
-        self._min_interval = 1.0 / max(config.rate_limit, 1)
+        adapter = HTTPAdapter(max_retries=_RETRY_STRATEGY)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
+        self._min_interval = max(1.0 / max(config.rate_limit, 1), 0.5)
         self._last_request = 0.0
 
     def _throttle(self) -> None:
@@ -46,13 +63,34 @@ class RedmineConnector(BaseConnector):
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict:
         url = self.base_url + path
-        self._throttle()
-        try:
-            resp = self._session.get(url, params=params, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
-        except (requests.RequestException, ValueError) as exc:
-            raise ConnectorError(f"Redmine request failed: {path} — {exc}") from exc
+        max_attempts = len(_RETRY_DELAYS) + 1
+        last_exc: Exception | None = None
+        for attempt in range(max_attempts):
+            self._throttle()
+            try:
+                resp = self._session.get(url, params=params, timeout=30)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.ConnectionError as exc:
+                last_exc = exc
+                if attempt < len(_RETRY_DELAYS):
+                    delay = _RETRY_DELAYS[attempt]
+                    logger.warning(
+                        "Connection error on %s (attempt %d/%d), "
+                        "retrying in %ds: %s",
+                        path, attempt + 1, max_attempts, delay, exc,
+                    )
+                    time.sleep(delay)
+                    continue
+                break
+            except (requests.RequestException, ValueError) as exc:
+                raise ConnectorError(
+                    f"Redmine request failed: {path} — {exc}"
+                ) from exc
+        raise ConnectorError(
+            f"Redmine request failed after {max_attempts} attempts: "
+            f"{path} — {last_exc}"
+        ) from last_exc
 
     def authenticate(self) -> None:
         """No-op for the public Ceph Tracker."""

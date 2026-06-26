@@ -1,13 +1,9 @@
 {
-  "expand": "names,schema",
-  "startAt": 0,
-  "maxResults": 50,
-  "total": 2,
   "issues": [
     {
       "expand": "renderedFields,names,schema,operations,editmeta,changelog",
       "id": "10234",
-      "self": "https://ibm-ceph.atlassian.net/rest/api/2/issue/10234",
+      "self": "https://ibm-ceph.atlassian.net/rest/api/3/issue/10234",
       "key": "IBMCEPH-1234",
       "fields": {
         "summary": "RGW: bucket resharding fails with ENOENT on multisite secondary",
@@ -58,7 +54,7 @@
     {
       "expand": "renderedFields,names,schema,operations,editmeta,changelog",
       "id": "10220",
-      "self": "https://ibm-ceph.atlassian.net/rest/api/2/issue/10220",
+      "self": "https://ibm-ceph.atlassian.net/rest/api/3/issue/10220",
       "key": "IBMCEPH-1220",
       "fields": {
         "summary": "RGW: ListObjectsV2 returns incorrect CommonPrefixes with delimiter",
@@ -98,5 +94,6 @@
         }
       }
     }
-  ]
+  ],
+  "isLast": true
 }

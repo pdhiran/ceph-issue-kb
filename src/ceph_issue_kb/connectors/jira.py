@@ -1,7 +1,11 @@
 """JIRA connector for IBM/Ceph Atlassian instances.
 
-Uses JIRA REST API v2 with Basic auth (username + API token).
-Pagination uses the startAt + maxResults pattern.
+Uses JIRA REST API with Basic auth (username + API token).
+The API version is configurable via ``api_version`` in the connector's
+extra config (default ``"3"``).  The search endpoint always uses the
+new ``/rest/api/3/search/jql`` path with cursor-based pagination
+(``nextPageToken`` / ``isLast``) because Atlassian removed the legacy
+``/rest/api/{2,3}/search`` endpoint (410 Gone).
 """
 
 from __future__ import annotations
@@ -23,11 +27,12 @@ PAGE_SIZE = 50
 
 
 class JiraConnector(BaseConnector):
-    """Connector for Atlassian JIRA (REST API v2)."""
+    """Connector for Atlassian JIRA (REST API v2/v3)."""
 
     def __init__(self, config: ConnectorConfig) -> None:
         super().__init__(config)
         self.project = config.extra.get("project", "")
+        self.api_version = config.extra.get("api_version", "3")
         self._session = requests.Session()
         self._session.auth = (self._credentials.username, self._credentials.token)
         self._session.headers.update(
@@ -35,6 +40,10 @@ class JiraConnector(BaseConnector):
         )
         self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
+
+    @property
+    def _api_prefix(self) -> str:
+        return f"/rest/api/{self.api_version}"
 
     @staticmethod
     def _escape_jql(value: str) -> str:
@@ -59,7 +68,7 @@ class JiraConnector(BaseConnector):
 
     def authenticate(self) -> None:
         """Validate credentials by fetching current user info."""
-        self._get("/rest/api/2/myself")
+        self._get(f"{self._api_prefix}/myself")
         logger.debug("JIRA authentication successful")
 
     def search(
@@ -80,7 +89,7 @@ class JiraConnector(BaseConnector):
     def fetch(self, issue_id: str) -> RawIssue:
         """Fetch a single issue by its JIRA key (e.g. IBMCEPH-1234)."""
         data = self._get(
-            f"/rest/api/2/issue/{issue_id}",
+            f"{self._api_prefix}/issue/{issue_id}",
             params={"expand": "renderedFields", "fields": "*all"},
         )
         key = data.get("key", issue_id)
@@ -109,15 +118,19 @@ class JiraConnector(BaseConnector):
             project = self._escape_jql(self.project)
             jql = f'project = "{project}" ORDER BY updated DESC'
             data = self._get(
-                "/rest/api/2/search",
-                params={"jql": jql, "maxResults": 0},
+                "/rest/api/3/search/jql",
+                params={"jql": jql, "maxResults": 1},
             )
-            total = data.get("total", 0)
+            connected = len(data.get("issues", [])) > 0
             return {
-                "ok": True,
+                "ok": connected,
                 "source": self.name,
-                "total_issues": total,
-                "message": f"Connected; {total} issues in project '{self.project}'",
+                "total_issues": 0,
+                "message": (
+                    f"Connected to project '{self.project}'"
+                    if connected
+                    else f"No issues found in project '{self.project}'"
+                ),
             }
         except ConnectorError as exc:
             return {
@@ -128,23 +141,25 @@ class JiraConnector(BaseConnector):
             }
 
     def _paginate(self, jql: str, limit: int | None = None) -> Iterator[RawIssue]:
-        """Paginate through JIRA search results using startAt/maxResults."""
-        start_at = 0
+        """Paginate through JIRA search results.
+
+        Uses the ``/rest/api/3/search/jql`` endpoint with cursor-based
+        pagination (``nextPageToken`` / ``isLast``).
+        """
         yielded = 0
         max_results = min(limit, PAGE_SIZE) if limit is not None else PAGE_SIZE
+        next_page_token: str | None = None
         while True:
-            data = self._get(
-                "/rest/api/2/search",
-                params={
-                    "jql": jql,
-                    "startAt": start_at,
-                    "maxResults": max_results,
-                    "expand": "renderedFields",
-                    "fields": "*all",
-                },
-            )
+            params: dict[str, Any] = {
+                "jql": jql,
+                "maxResults": max_results,
+                "expand": "renderedFields",
+                "fields": "*all",
+            }
+            if next_page_token is not None:
+                params["nextPageToken"] = next_page_token
+            data = self._get("/rest/api/3/search/jql", params=params)
             issues = data.get("issues", [])
-            total = data.get("total", 0)
             if not issues:
                 break
             for issue in issues:
@@ -158,11 +173,9 @@ class JiraConnector(BaseConnector):
                     data=issue,
                 )
                 yielded += 1
-            start_at += len(issues)
-            if start_at >= total:
+            if data.get("isLast", True):
                 break
-        logger.info(
-            "JIRA pagination complete: yielded %d issues (total available: %d)",
-            yielded,
-            total,
-        )
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token:
+                break
+        logger.info("JIRA pagination complete: yielded %d issues", yielded)
