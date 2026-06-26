@@ -1,14 +1,12 @@
 # Credential Setup Guide
 
-This guide walks you through generating and configuring credentials for each issue source. The Ceph Tracker is public and needs no credentials. The other three sources require authentication.
+This guide walks you through generating and configuring credentials for the active issue sources.
 
 ## Overview
 
 | Source | Auth Method | Credentials Needed | Env Variables |
 |--------|------------|-------------------|---------------|
-| Ceph Tracker | None | — | — |
 | IBM Ceph JIRA | API Token | Email + token | `JIRA_USERNAME`, `JIRA_API_TOKEN` |
-| Red Hat Bugzilla | API Key | API key | `BUGZILLA_API_KEY` |
 | Red Hat KB | Offline Token | API token | `RH_OFFLINE_TOKEN` |
 
 ## Step 1: Create a `.env` file
@@ -61,44 +59,6 @@ print(conn.health())
 
 ---
 
-## Red Hat Bugzilla
-
-### Generate API Key
-
-1. Log in to [Red Hat Bugzilla](https://bugzilla.redhat.com)
-2. Go to **Preferences** → **API Keys**: https://bugzilla.redhat.com/userprefs.cgi?tab=apikey
-3. Under "New API key", enter a description: `ceph-issue-kb`
-4. Click **Submit Changes**
-5. Copy the generated API key
-
-### Add to `.env`
-
-```bash
-BUGZILLA_API_KEY=aBcDeFgHiJkLmNoPqRsTuVwXyZ123456
-```
-
-### Verify
-
-```bash
-source .env && export BUGZILLA_API_KEY
-python3 -c "
-from ceph_issue_kb.config import load_config
-from ceph_issue_kb.connectors import get_connector
-config = load_config('connectors.yaml')
-conn = get_connector(config.connectors['redhat-bugzilla'])
-conn.authenticate()
-print(conn.health())
-"
-```
-
-### Notes
-- API keys do not expire unless revoked
-- Sent as `X-BUGZILLA-API-KEY` header
-- Requires a Red Hat account with Bugzilla access
-- Scoped to "Red Hat Ceph Storage" product (configured in `connectors.yaml`)
-
----
-
 ## Red Hat Knowledge Base
 
 ### Generate Offline API Token
@@ -146,36 +106,28 @@ Expected output:
 
 ## Enable Connectors
 
-After setting up credentials, enable the connectors in `connectors.yaml`:
+After setting up credentials, the active connectors are already enabled in `connectors.yaml`:
 
 ```yaml
 connectors:
-  ceph-tracker:
-    enabled: true      # Always on — no auth needed
-
   ibm-jira:
     enabled: true      # Set to true after JIRA creds are ready
 
-  redhat-bugzilla:
-    enabled: true      # Set to true after Bugzilla key is ready
-
   redhat-kb:
-    enabled: true      # Set to true after RH cookie is ready
+    enabled: true      # Set to true after RH token is ready
 ```
 
 ## Run the Indexer
 
 ```bash
 # Load credentials
-source .env && export JIRA_USERNAME JIRA_API_TOKEN BUGZILLA_API_KEY RH_OFFLINE_TOKEN
+source .env && export JIRA_USERNAME JIRA_API_TOKEN RH_OFFLINE_TOKEN
 
 # Index all enabled connectors
 python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 
 # Or index a single source
-python3 index_issues.py --connector ceph-tracker --verbose
 python3 index_issues.py --connector ibm-jira --verbose
-python3 index_issues.py --connector redhat-bugzilla --verbose
 python3 index_issues.py --connector redhat-kb --verbose
 ```
 
@@ -184,9 +136,7 @@ python3 index_issues.py --connector redhat-kb --verbose
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `AuthError: Environment variable JIRA_API_TOKEN is not set or empty` | Env var not exported | Run `source .env && export JIRA_API_TOKEN` |
-| `ConnectorError: Bugzilla authentication failed` | Invalid or expired API key | Regenerate at Bugzilla preferences |
 | `ConnectorError: RHKB request failed: 401` | Invalid offline token | Regenerate at https://access.redhat.com/management/api |
-| `ConnectorError: Redmine request failed: 403` | Rate limited | Wait and retry, or reduce `rate_limit` in config |
 | `ConnectorError: JIRA request failed: 401` | Wrong username or token | Verify email and regenerate token |
 
 ## Security Best Practices
@@ -196,3 +146,22 @@ python3 index_issues.py --connector redhat-kb --verbose
 - **Rotate tokens periodically** — especially if shared or leaked
 - **Use minimal permissions** — read-only access is sufficient for indexing
 - **Revoke unused tokens** — delete tokens you no longer need
+
+---
+
+## Future Sources
+
+The following sources have connector implementations but are not yet enabled. You do not need credentials for these until they are activated.
+
+### Ceph Tracker (Redmine)
+
+Public upstream issue tracker at https://tracker.ceph.com. No authentication required. The `RedmineConnector` is implemented in `src/ceph_issue_kb/connectors/redmine.py`.
+
+### Red Hat Bugzilla
+
+Red Hat bug tracker at https://bugzilla.redhat.com. Requires an API key generated at **Preferences** > **API Keys**. The `BugzillaConnector` is implemented in `src/ceph_issue_kb/connectors/bugzilla.py`.
+
+| Source | Auth Method | Env Variable |
+|--------|------------|-------------|
+| Ceph Tracker | None | — |
+| Red Hat Bugzilla | API Key | `BUGZILLA_API_KEY` |

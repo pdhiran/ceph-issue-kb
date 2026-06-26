@@ -1,6 +1,6 @@
 # Ceph Issue Intelligence KB
 
-Issue intelligence knowledge base for Ceph engineering. Indexes issues from **4 sources** (Ceph Tracker, IBM JIRA, Red Hat Bugzilla, Red Hat KB) into a unified, searchable knowledge base with **12 MCP tools** and a REST API. Answers: **"Has this problem been seen before?"**
+Issue intelligence knowledge base for Ceph engineering. Indexes **14,670+ issues from 2 sources** (IBM Ceph JIRA, Red Hat KB) into a unified, searchable knowledge base with **12 MCP tools** and a REST API. Answers: **"Has this problem been seen before?"**
 
 ## Quick Start
 
@@ -11,14 +11,13 @@ pip install -e ".[all]"
 # Run tests
 pytest
 
-# Build the issue index (public source, no auth required)
-python3 index_issues.py --connector ceph-tracker --verbose
-
-# Build from all sources (requires credentials)
+# Build the issue index (requires credentials — see CREDENTIALS.md)
 export JIRA_USERNAME=your_user JIRA_API_TOKEN=your_token
-export BUGZILLA_API_KEY=your_key
-export RH_SSO_COOKIE=your_cookie
+export RH_OFFLINE_TOKEN=your_token
 python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
+
+# Index a single source
+python3 index_issues.py --connector ibm-jira --verbose
 ```
 
 Use the connector framework programmatically:
@@ -28,11 +27,11 @@ from ceph_issue_kb.config import load_config
 from ceph_issue_kb.connectors import get_connector
 
 config = load_config("connectors.yaml")
-connector = get_connector(config.connectors["ceph-tracker"])
+connector = get_connector(config.connectors["ibm-jira"])
 connector.authenticate()
 
-issue = connector.fetch("68051")
-print(issue.source, issue.source_id, issue.data.get("subject"))
+issue = connector.fetch("IBMCEPH-12345")
+print(issue.source, issue.source_id, issue.data.get("summary"))
 ```
 
 ## Architecture
@@ -163,7 +162,7 @@ Once connected, agents automatically check for known Ceph issues. You can also a
 User: "We're seeing 'HEALTH_WARN too many PGs per OSD' after adding OSDs"
 
 Agent:
-1. search_health_warning("too many PGs per OSD")         <- Issue KB
+1. search_health_warning("too many PGs per OSD")         <- Issue KB (JIRA + RH KB)
 2. search_docs("PG autoscaler", component="rados")       <- Doc KB
 3. verify_config("mon_max_pg_per_osd")                   <- Command KB
 4. find_workaround("too many PGs per OSD")               <- Issue KB
@@ -185,12 +184,21 @@ LangChain and CrewAI wrappers included. See [BOB_INTEGRATION_GUIDE.md](BOB_INTEG
 
 ## Connectors
 
-| Connector | Source | Auth |
-|-----------|--------|------|
-| `RedmineConnector` | [Ceph Tracker](https://tracker.ceph.com) | None (public) |
-| `JiraConnector` | IBM Ceph JIRA | API token |
-| `BugzillaConnector` | Red Hat Bugzilla | API key |
-| `RHKBConnector` | Red Hat KB | Cookie/session |
+### Active
+
+| Connector | Source | Issues | Auth |
+|-----------|--------|--------|------|
+| `JiraConnector` | IBM Ceph JIRA | 14,037 | API token |
+| `RHKBConnector` | Red Hat KB | 633 | Offline token |
+
+### Future Connectors
+
+The following connectors are implemented but not yet enabled. The code exists in `src/ceph_issue_kb/connectors/` for when these sources are activated.
+
+| Connector | Source | Status |
+|-----------|--------|--------|
+| `RedmineConnector` | [Ceph Tracker](https://tracker.ceph.com) | Deferred — upstream Redmine API needs pagination work |
+| `BugzillaConnector` | Red Hat Bugzilla | Deferred — pending access and indexing pipeline |
 
 ## Documentation
 

@@ -88,7 +88,7 @@ Every entity includes these common fields alongside domain-specific fields:
 |-------|------|----------|-------------|
 | `entity_id` | string | Yes | Stable deterministic 16-char hex ID |
 | `entity_type` | string | Yes | `"issue"`, `"comment"`, `"relationship"` |
-| `source` | string | Yes | Connector name (e.g., `"ceph-tracker"`) |
+| `source` | string | Yes | Connector name (e.g., `"ibm-jira"`) |
 | `source_id` | string | Yes | ID in the source system |
 | `source_url` | string | Yes | URL to the issue in the source tracker |
 | `title` | string | Yes | Issue title |
@@ -132,9 +132,9 @@ Search results follow a consistent schema. Each item in the `results` array cont
 {
   "entity_id": "22b7cddd3f1fc2b7",
   "entity_type": "issue",
-  "source": "ceph-tracker",
-  "source_id": "68051",
-  "source_url": "https://tracker.ceph.com/issues/68051",
+  "source": "ibm-jira",
+  "source_id": "IBMCEPH-12345",
+  "source_url": "https://ibm-ceph.atlassian.net/browse/IBMCEPH-12345",
   "title": "Dashboard module fails to connect",
   "summary": "First ~500 chars of description...",
   "status": "open",

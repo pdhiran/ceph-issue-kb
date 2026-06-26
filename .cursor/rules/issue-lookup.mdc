@@ -87,9 +87,16 @@ Issues contain extracted signals that enable precise matching:
 
 ## Issue Sources
 
+### Active
+
+| Source | ID prefix | Coverage | Issues |
+|--------|-----------|----------|--------|
+| IBM Ceph JIRA | `ibm-jira` | IBM internal issues | 14,037 |
+| Red Hat KB | `redhat-kb` | Knowledge base articles | 633 |
+
+### Future (not yet enabled)
+
 | Source | ID prefix | Coverage |
 |--------|-----------|----------|
 | Ceph Tracker (Redmine) | `ceph-tracker` | Public upstream issues |
-| IBM Ceph JIRA | `ibm-jira` | IBM internal issues |
 | Red Hat Bugzilla | `redhat-bugzilla` | RHCS bugs |
-| Red Hat KB | `redhat-kb` | Knowledge base articles |

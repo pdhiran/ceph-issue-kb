@@ -49,10 +49,10 @@ ceph-issue-kb/
 │   │   ├── __init__.py         # Connector registry + factory
 │   │   ├── base.py             # BaseConnector ABC
 │   │   ├── auth.py             # AuthProvider (env-var credential resolution)
-│   │   ├── redmine.py          # Ceph Tracker connector
-│   │   ├── jira.py             # IBM JIRA connector
-│   │   ├── bugzilla.py         # Red Hat Bugzilla connector
-│   │   └── rhkb.py             # Red Hat KB connector
+│   │   ├── jira.py             # IBM JIRA connector (active)
+│   │   ├── rhkb.py             # Red Hat KB connector (active)
+│   │   ├── redmine.py          # Ceph Tracker connector (future — not yet enabled)
+│   │   └── bugzilla.py         # Red Hat Bugzilla connector (future — not yet enabled)
 │   │
 │   ├── indexer/
 │   │   ├── __init__.py
@@ -223,11 +223,11 @@ Containment-based deduplication prevents overlapping regex matches from producin
 
 ```
 connectors.yaml          Environment Variables
-┌──────────────┐         ┌────────────────────┐
-│ auth:        │         │ JIRA_USERNAME=...  │
-│   method:    │────────►│ JIRA_API_TOKEN=... │
-│   token_env: │         │ BUGZILLA_API_KEY=. │
-└──────────────┘         └────────────────────┘
+┌──────────────┐         ┌──────────────────────┐
+│ auth:        │         │ JIRA_USERNAME=...    │
+│   method:    │────────►│ JIRA_API_TOKEN=...   │
+│   token_env: │         │ RH_OFFLINE_TOKEN=... │
+└──────────────┘         └──────────────────────┘
          │
          ▼
 ┌──────────────┐
@@ -343,12 +343,12 @@ Test coverage (359 tests total):
 ### Rebuilding the Issue Index
 
 ```bash
-# Full rebuild from all sources (requires credentials — see CREDENTIALS.md)
-source .env && export JIRA_USERNAME JIRA_API_TOKEN BUGZILLA_API_KEY RH_SSO_COOKIE
+# Full rebuild from all active sources (requires credentials — see CREDENTIALS.md)
+source .env && export JIRA_USERNAME JIRA_API_TOKEN RH_OFFLINE_TOKEN
 python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 
 # Single source only
-python3 index_issues.py --connector ceph-tracker --verbose
+python3 index_issues.py --connector ibm-jira --verbose
 
 # Incremental update (issues since a date)
 python3 index_issues.py --config connectors.yaml --since 2025-06-01 --verbose

@@ -1,14 +1,4 @@
 connectors:
-  ceph-tracker:
-    type: redmine
-    enabled: true
-    base_url: https://tracker.ceph.com
-    project: ceph
-    # auth: null means no authentication required (equivalent to method: "none")
-    auth: null
-    rate_limit: 2
-    since: "2024-01-01"
-
   ibm-jira:
     type: jira
     enabled: true
@@ -18,17 +8,6 @@ connectors:
       method: api_token
       username_env: JIRA_USERNAME
       token_env: JIRA_API_TOKEN
-    rate_limit: 5
-    since: "2024-01-01"
-
-  redhat-bugzilla:
-    type: bugzilla
-    enabled: true
-    base_url: https://bugzilla.redhat.com
-    product: "Red Hat Ceph Storage"
-    auth:
-      method: api_key
-      key_env: BUGZILLA_API_KEY
     rate_limit: 5
     since: "2024-01-01"
 
@@ -42,4 +21,28 @@ connectors:
       method: offline_token
       token_env: RH_OFFLINE_TOKEN
     rate_limit: 2
+    since: "2024-01-01"
+
+  # --- Future connectors (disabled) ---
+  # Code exists in src/ceph_issue_kb/connectors/ but these sources
+  # are not yet part of the active indexing pipeline.
+
+  ceph-tracker:
+    type: redmine
+    enabled: false  # Deferred — upstream Redmine API needs pagination work
+    base_url: https://tracker.ceph.com
+    project: ceph
+    auth: null
+    rate_limit: 2
+    since: "2024-01-01"
+
+  redhat-bugzilla:
+    type: bugzilla
+    enabled: false  # Deferred — pending access and indexing pipeline
+    base_url: https://bugzilla.redhat.com
+    product: "Red Hat Ceph Storage"
+    auth:
+      method: api_key
+      key_env: BUGZILLA_API_KEY
+    rate_limit: 5
     since: "2024-01-01"

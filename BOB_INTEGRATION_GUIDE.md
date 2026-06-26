@@ -36,14 +36,13 @@ pip install -e .
 ### 2. Fetch and Index Issues
 
 ```bash
-# Public source (no auth required)
-python3 index_issues.py --connector ceph-tracker --verbose
-
-# All sources (requires credentials)
+# All active sources (requires credentials — see CREDENTIALS.md)
 export JIRA_USERNAME=your_user JIRA_API_TOKEN=your_token
-export BUGZILLA_API_KEY=your_key
-export RH_SSO_COOKIE=your_cookie
+export RH_OFFLINE_TOKEN=your_token
 python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
+
+# Single source only
+python3 index_issues.py --connector ibm-jira --verbose
 ```
 
 ### 3. Start the REST API Server
@@ -93,9 +92,9 @@ Response:
     {
       "entity_id": "22b7cddd3f1fc2b7",
       "entity_type": "issue",
-      "source": "ceph-tracker",
-      "source_id": "68051",
-      "source_url": "https://tracker.ceph.com/issues/68051",
+      "source": "ibm-jira",
+      "source_id": "IBMCEPH-12345",
+      "source_url": "https://ibm-ceph.atlassian.net/browse/IBMCEPH-12345",
       "title": "OSD slow ops during recovery",
       "summary": "First ~500 chars of description...",
       "status": "open",
@@ -442,7 +441,7 @@ You have access to the Ceph Issue Intelligence KB. Use it as follows:
 
 ### No issues found
 - Verify connectors are configured: `cat connectors.yaml`
-- Run indexer: `python3 index_issues.py --connector ceph-tracker --verbose`
+- Run indexer: `python3 index_issues.py --connector ibm-jira --verbose`
 - Check connector health: `curl http://localhost:8200/health`
 
 ### Slow responses
@@ -456,7 +455,7 @@ The REST API serves indexed issue data that may include confidential content fro
 
 - **Default bind address**: The REST API should default to `127.0.0.1`, not `0.0.0.0`. Only bind to `0.0.0.0` when behind a reverse proxy or in a trusted network.
 - **Authentication**: Production deployments should add authentication in front of the API — an API key, a reverse proxy with auth (e.g., nginx + OAuth), or mTLS.
-- **Credential isolation**: Do not pass indexer credentials (`JIRA_USERNAME`, `JIRA_API_TOKEN`, `BUGZILLA_API_KEY`, `RH_SSO_COOKIE`) into the serving container. The serving phase only needs the pre-built `knowledge/` directory, not access to issue trackers.
+- **Credential isolation**: Do not pass indexer credentials (`JIRA_USERNAME`, `JIRA_API_TOKEN`, `RH_OFFLINE_TOKEN`) into the serving container. The serving phase only needs the pre-built `knowledge/` directory, not access to issue trackers.
 
 ## Support
 
