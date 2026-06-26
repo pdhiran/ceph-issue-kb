@@ -181,6 +181,19 @@ def main(argv: list[str] | None = None) -> None:
         default=8080,
         help="Port for SSE transport (default: 8080)",
     )
+    parser.add_argument(
+        "--auto-update",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Auto-pull latest knowledge base from git on startup (default: enabled)",
+    )
+    parser.add_argument(
+        "--update-interval",
+        type=float,
+        default=24,
+        metavar="HOURS",
+        help="Hours between periodic KB update checks (default: 24, 0=disable periodic)",
+    )
     args = parser.parse_args(argv)
 
     kb_dir = _find_kb_path(args.kb_path)
@@ -190,6 +203,13 @@ def main(argv: list[str] | None = None) -> None:
     else:
         logger.warning("No knowledge base found — server will report degraded health")
         kb = KnowledgeBase.empty()
+
+    if args.auto_update:
+        from ceph_issue_kb.server.auto_update import start_auto_update
+        start_auto_update(
+            kb, kb_dir,
+            update_interval_hours=args.update_interval,
+        )
 
     mcp = create_mcp_server(kb)
 

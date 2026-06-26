@@ -32,7 +32,9 @@ Choose the integration that matches your agent:
 }
 ```
 
-Restart Cursor. The MCP server starts automatically.
+Restart Cursor. The MCP server starts automatically and pulls the latest issue data on startup — no manual `git pull` needed.
+
+To disable auto-update, add `"--no-auto-update"` to `args`.
 
 ---
 

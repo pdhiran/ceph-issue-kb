@@ -92,6 +92,19 @@ class KnowledgeBase:
         engine = SearchEngine()
         return cls(search_engine=engine)
 
+    def reload(self, kb_path: str | Path) -> None:
+        """Hot-reload the knowledge base from *kb_path*.
+
+        Attribute assignments are GIL-atomic, so concurrent readers see
+        either the old or the new engine — never a half-swapped state.
+        """
+        path = Path(kb_path)
+        engine = SearchEngine.load(path)
+        sim = SimilarityEngine(engine)
+        self._search = engine
+        self._similarity = sim
+        self._kb_path = path
+
     # -- Search ---------------------------------------------------------------
 
     def search_issues(
