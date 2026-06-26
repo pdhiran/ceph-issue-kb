@@ -23,7 +23,7 @@ connectors:
 
   redhat-bugzilla:
     type: bugzilla
-    enabled: false
+    enabled: true
     base_url: https://bugzilla.redhat.com
     product: "Red Hat Ceph Storage"
     auth:
@@ -34,7 +34,7 @@ connectors:
 
   redhat-kb:
     type: rhkb
-    enabled: false
+    enabled: true
     base_url: https://access.redhat.com
     auth:
       method: cookie

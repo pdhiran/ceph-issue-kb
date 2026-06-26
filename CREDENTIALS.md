@@ -110,8 +110,8 @@ The Red Hat KB uses cookie-based authentication via Red Hat SSO. This is the mos
    - **Chrome/Edge**: `F12` → **Application** tab → **Cookies** → `https://access.redhat.com`
    - **Firefox**: `F12` → **Storage** tab → **Cookies** → `https://access.redhat.com`
    - **Safari**: **Develop** → **Show Web Inspector** → **Storage** → **Cookies**
-3. Find the cookie named `rh_sso`
-4. Copy its **Value** (it's a long JWT-like string)
+3. Find the cookie named `rh_jwt` (a long JWT token starting with `eyJ...`)
+4. Copy its **Value**
 
 ### Add to `.env`
 

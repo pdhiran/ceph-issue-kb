@@ -47,8 +47,9 @@ class RHKBConnector(BaseConnector):
         hostname = urlparse(self.base_url).hostname or ""
         parts = hostname.split(".")
         cookie_domain = "." + ".".join(parts[-2:]) if len(parts) >= 2 else hostname
+        cookie_name = config.extra.get("cookie_name", "rh_jwt")
         self._session.cookies.set(
-            "rh_sso", self._credentials.cookie, domain=cookie_domain
+            cookie_name, self._credentials.cookie, domain=cookie_domain
         )
         self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
