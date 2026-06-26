@@ -196,6 +196,7 @@ LangChain and CrewAI wrappers included. See [BOB_INTEGRATION_GUIDE.md](BOB_INTEG
 
 | Document | Description |
 |----------|-------------|
+| [CREDENTIALS.md](CREDENTIALS.md) | Step-by-step credential setup for all sources |
 | [SPEC.md](SPEC.md) | MCP platform contract and entity schema |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Architecture, source tree, maintainer guide |
 | [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md) | REST API reference, agent integration, deployment |

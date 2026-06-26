@@ -11,7 +11,7 @@ connectors:
 
   ibm-jira:
     type: jira
-    enabled: false
+    enabled: true
     base_url: https://ibm-ceph.atlassian.net
     project: IBMCEPH
     auth:
