@@ -126,6 +126,8 @@ Once connected, agents automatically check for known Ceph issues. You can also a
 | IBM Ceph JIRA | 14,037 | Internal Ceph bug tracker and feature requests |
 | Red Hat KB | 600 | Customer-facing knowledge base articles |
 
+The knowledge base is updated daily by the maintainer with the latest bugs and articles. Your MCP server automatically pulls new data every 12 hours — no action needed on your part.
+
 ## VS Code Extension
 
 Coming soon. See [ceph-doc-kb](https://github.com/pdhiran/ceph-doc-kb) and [ceph-command-kb](https://github.com/pdhiran/ceph-command-kb) for existing VS Code extensions that complement this knowledge base.
