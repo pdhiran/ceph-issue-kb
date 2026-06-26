@@ -91,6 +91,15 @@ class SearchEngine:
         self._faiss_entity_ids: list[str] = []
         self._faiss_dim: int = 0
 
+    @property
+    def issues(self) -> dict[str, NormalizedIssue]:
+        """All indexed issues keyed by entity_id."""
+        return self._issues
+
+    def get_issue(self, entity_id: str) -> NormalizedIssue | None:
+        """Look up a single issue by its stable entity ID."""
+        return self._issues.get(entity_id)
+
     @classmethod
     def from_issues(
         cls,

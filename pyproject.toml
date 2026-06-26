@@ -31,6 +31,7 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.4",
     "responses>=0.25",
+    "httpx>=0.27",
 ]
 all = [
     "ceph-issue-kb[search,server,dev]",
