@@ -35,14 +35,14 @@ Each KB exposes a consistent interface so agents can discover capabilities, chec
 
 ### Recommended Tools
 
-These are the abstract platform contract tools. They define the interface that any Engineering Intelligence KB should implement when applicable. The `ceph-issue-kb` project implements these as the domain-specific tools listed in the "Domain-Specific Tools" section below (e.g., `search` becomes `search_issues`, `related` becomes `find_related_issues`).
+The abstract platform contract defines generic tool interfaces that each KB implements with domain-specific tools (e.g., `search` becomes `search_issues`, `related` becomes `find_related_issues`).
 
-| Tool | Description |
-|------|-------------|
-| `search(query, filters)` | Generic search across all entity types |
-| `lookup(entity_id)` | Retrieve a single entity by its stable ID |
-| `related(entity_id)` | Return entities related to the given entity |
-| `metadata(entity_id)` | Return metadata, provenance, and confidence for an entity |
+| Tool | Description | Implementation |
+|------|-------------|----------------|
+| `search(query, filters)` | Generic search across all entity types | `search_issues` |
+| `lookup(entity_id)` | Retrieve a single entity by its stable ID | `find_related_issues` (by ID) |
+| `related(entity_id)` | Return entities related to the given entity | `find_related_issues` |
+| `metadata(entity_id)` | Return metadata, provenance, and confidence for an entity | Included in search results |
 
 ### Entity Types
 
@@ -225,7 +225,7 @@ Any new KB should:
 
 ## Future Extensions
 
-The following will be added to the contract when the corresponding capabilities are built:
+The following may be added to the contract in future versions:
 
 - Cross-KB relationship resolution (lookup entity by ID across all KBs)
 - Event streaming (subscribe to KB updates)

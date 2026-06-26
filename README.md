@@ -5,11 +5,20 @@ Issue Intelligence Knowledge Base for Ceph engineering. Indexes issues from Ceph
 ## Quick Start
 
 ```bash
-# Install (with dev dependencies for testing)
-pip install -e ".[dev]"
+# Install
+pip install -e ".[all]"
 
 # Run tests
 pytest
+
+# Build the issue index (public source, no auth required)
+python3 index_issues.py --connector ceph-tracker --verbose
+
+# Build from all sources (requires credentials)
+export JIRA_USERNAME=your_user JIRA_API_TOKEN=your_token
+export BUGZILLA_API_KEY=your_key
+export RH_SSO_COOKIE=your_cookie
+python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 ```
 
 Use the connector framework programmatically:
@@ -26,19 +35,16 @@ issue = connector.fetch("68051")
 print(issue.source, issue.source_id, issue.data.get("subject"))
 ```
 
-> **Note:** The MCP server, REST API, and `index_issues.py` CLI are coming in later phases. Phase 1 provides the connector framework, models, config loading, and signal extraction.
-
 ## Architecture
 
 - **Connector framework**: Plugin-based — each issue source implements `BaseConnector`. Adding a new source = one class + a config entry
 - **Signal extraction**: Automatically extracts stacktraces, assertions, health warnings, Ceph commands, config params, and log snippets from issue text
 - **Common schema**: Every issue from every source normalizes to `NormalizedIssue` with extracted signals
 - **Two-tier search**: BM25 keyword match (exact error messages) + fastembed semantic search (conceptual similarity)
+- **Similarity engine**: Weighted scoring across title, description/stacktrace, and metadata overlap
 - **Per-source storage**: Each connector's issues stored separately for scalability
 
-## Connect Your Agent (Coming in Phase 4)
-
-> **Note:** The MCP server and REST API are not yet implemented. The configuration below is a preview of what's coming in Phase 4. Today, use the connector framework programmatically (see Quick Start above).
+## Connect Your Agent
 
 Choose the integration that matches your agent:
 
@@ -84,7 +90,7 @@ curl -X POST http://localhost:8200/api/search_issues \
 - [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md) — REST API reference, agent integration, deployment options
 - [examples/agent_integration.py](examples/agent_integration.py) — Ready-to-use Python client, LangChain/CrewAI tools
 
-> **VS Code Extension**: A VS Code extension for interactive issue search is planned for a future phase. See the [ceph-command-kb VS Code extension](https://github.com/pdhiran/ceph-command-kb/tree/main/vscode-extension) for the pattern.
+> **VS Code Extension**: A VS Code extension for interactive issue search is planned for a future release. See the [ceph-command-kb VS Code extension](https://github.com/pdhiran/ceph-command-kb/tree/main/vscode-extension) for the pattern.
 
 ## MCP Tools
 
@@ -133,10 +139,10 @@ LangChain and CrewAI wrappers included. See [BOB_INTEGRATION_GUIDE.md](BOB_INTEG
 
 | Connector | Source | Auth | Status |
 |-----------|--------|------|--------|
-| `RedmineConnector` | [Ceph Tracker](https://tracker.ceph.com) | None (public) | Phase 1 |
-| `JiraConnector` | IBM Ceph JIRA | API token | Phase 2 |
-| `BugzillaConnector` | Red Hat Bugzilla | API key | Phase 2 |
-| `RHKBConnector` | Red Hat KB | Cookie/session | Phase 2 |
+| `RedmineConnector` | [Ceph Tracker](https://tracker.ceph.com) | None (public) | Done |
+| `JiraConnector` | IBM Ceph JIRA | API token | Done |
+| `BugzillaConnector` | Red Hat Bugzilla | API key | Done |
+| `RHKBConnector` | Red Hat KB | Cookie/session | Done |
 
 ## Documentation
 

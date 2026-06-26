@@ -1,13 +1,10 @@
-"""Ready-made Python client for the ceph-issue-kb REST API (Phase 4).
+"""Ready-made Python client for the ceph-issue-kb REST API.
 
 Usage:
     from examples.agent_integration import CephIssueKBClient
 
     client = CephIssueKBClient("http://localhost:8200")
     result = client.is_known_issue("FAILED ceph_assert(googly > 0)")
-
-Note: The REST API is planned for Phase 4. This client documents the
-planned interface and can be used once the server is implemented.
 """
 
 from __future__ import annotations

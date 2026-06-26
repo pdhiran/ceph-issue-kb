@@ -2,8 +2,6 @@
 
 This guide covers integrating the Ceph Issue Intelligence KB with LLM agents, including IBM watsonx (Bob), LangChain, CrewAI, CI/CD pipelines, and custom agent frameworks.
 
-> **Note:** The REST API and MCP server are planned for Phase 4. This guide documents the planned endpoints and integration patterns. The core indexing and search engine are being built in Phases 1-3.
-
 ## Architecture
 
 ```
@@ -48,7 +46,7 @@ export RH_SSO_COOKIE=your_cookie
 python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 ```
 
-### 3. Start the REST API Server (Phase 4)
+### 3. Start the REST API Server
 
 ```bash
 # Start on default port 8200
@@ -77,7 +75,7 @@ Expected response:
 }
 ```
 
-## REST API Reference (Phase 4)
+## REST API Reference
 
 Base URL: `http://localhost:8200`
 
@@ -181,7 +179,7 @@ curl http://localhost:8200/health
 curl http://localhost:8200/capabilities
 ```
 
-## All Planned REST Endpoints
+## All REST Endpoints
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -460,7 +458,7 @@ You have access to the Ceph Issue Intelligence KB. Use it as follows:
 
 ## Security Considerations
 
-The REST API (Phase 4) will serve indexed issue data that may include confidential content from IBM JIRA and Red Hat Bugzilla. Keep the following in mind:
+The REST API serves indexed issue data that may include confidential content from IBM JIRA and Red Hat Bugzilla. Keep the following in mind:
 
 - **Default bind address**: The REST API should default to `127.0.0.1`, not `0.0.0.0`. Only bind to `0.0.0.0` when behind a reverse proxy or in a trusted network.
 - **Authentication**: Production deployments should add authentication in front of the API — an API key, a reverse proxy with auth (e.g., nginx + OAuth), or mTLS.

@@ -31,19 +31,17 @@ The system has two distinct phases:
 
 **Server mode** runs anywhere — loads pre-built indices from `knowledge/`. No issue tracker access required.
 
-## Full Planned Source Tree
-
-Files marked with a phase comment are not yet implemented.
+## Source Tree
 
 ```
 ceph-issue-kb/
 ├── pyproject.toml              # Package config, dependencies
 ├── connectors.yaml             # Connector configuration (sources, auth, rate limits)
-├── index_issues.py             # CLI: fetch + normalize + index          # Phase 3 — not yet implemented
+├── index_issues.py             # CLI: fetch + normalize + embed + store
 │
 ├── src/ceph_issue_kb/
 │   ├── __init__.py
-│   ├── models.py               # NormalizedIssue, RawIssue, Comment, Relationship
+│   ├── models.py               # NormalizedIssue, RawIssue, Comment, Relationship, SearchResult
 │   ├── config.py               # connectors.yaml loader + validation
 │   ├── signal_extractor.py     # Extract stacktraces, assertions, commands, etc.
 │   │
@@ -51,35 +49,46 @@ ceph-issue-kb/
 │   │   ├── __init__.py         # Connector registry + factory
 │   │   ├── base.py             # BaseConnector ABC
 │   │   ├── auth.py             # AuthProvider (env-var credential resolution)
-│   │   ├── redmine.py          # Ceph Tracker connector (Phase 1)
-│   │   ├── jira.py             # IBM JIRA connector                     # Phase 2 — not yet implemented
-│   │   ├── bugzilla.py         # Red Hat Bugzilla connector             # Phase 2 — not yet implemented
-│   │   └── rhkb.py             # Red Hat KB connector                   # Phase 2 — not yet implemented
+│   │   ├── redmine.py          # Ceph Tracker connector
+│   │   ├── jira.py             # IBM JIRA connector
+│   │   ├── bugzilla.py         # Red Hat Bugzilla connector
+│   │   └── rhkb.py             # Red Hat KB connector
 │   │
 │   ├── indexer/
 │   │   ├── __init__.py
-│   │   ├── normalizer.py       # RawIssue → NormalizedIssue             # Phase 3 — not yet implemented
-│   │   ├── embedder.py         # fastembed ONNX + FAISS                 # Phase 3 — not yet implemented
-│   │   └── builder.py          # Pipeline orchestrator                  # Phase 3 — not yet implemented
+│   │   ├── normalizer.py       # RawIssue → NormalizedIssue (per-source normalizers)
+│   │   ├── embedder.py         # fastembed ONNX + FAISS index builder
+│   │   └── builder.py          # Pipeline orchestrator (fetch → normalize → embed → store)
 │   │
 │   ├── search/
 │   │   ├── __init__.py
-│   │   ├── engine.py           # BM25 + semantic search                 # Phase 3 — not yet implemented
-│   │   └── similarity.py       # Similarity scoring V1                  # Phase 4 — not yet implemented
+│   │   ├── engine.py           # BM25 + semantic search with RRF merge
+│   │   └── similarity.py       # Similarity scoring V1 (title + desc + metadata)
 │   │
 │   └── server/
 │       ├── __init__.py
-│       ├── mcp_server.py       # MCP server                             # Phase 4 — not yet implemented
-│       └── rest_api.py         # REST API                               # Phase 4 — not yet implemented
+│       ├── mcp_server.py       # MCP server (stdio/SSE)
+│       └── rest_api.py         # REST API (Starlette + Uvicorn)
 │
 ├── tests/
-│   ├── fixtures/               # Sample Redmine API responses
+│   ├── fixtures/               # Sample API responses per connector
 │   │   ├── redmine_issue.json
 │   │   └── redmine_issues_page.json
 │   ├── test_config.py          # Config loading + validation
 │   ├── test_connectors.py      # Auth, factory, RedmineConnector
 │   ├── test_models.py          # Entity ID, dataclasses
-│   └── test_signal_extractor.py # Signal extraction
+│   ├── test_signal_extractor.py # Signal extraction
+│   ├── test_jira_connector.py  # JIRA connector with mocked HTTP
+│   ├── test_bugzilla_connector.py # Bugzilla connector with mocked HTTP
+│   ├── test_rhkb_connector.py  # Red Hat KB connector with mocked HTTP
+│   ├── test_normalizer.py      # Per-source normalizers + signal integration
+│   ├── test_embedder.py        # Embedder unit tests
+│   ├── test_search.py          # Search engine (BM25, semantic, merge, filters)
+│   ├── test_builder.py         # Builder pipeline tests
+│   └── workflow_*.py           # Integration workflow tests
+│
+├── examples/                   # Integration examples
+│   └── agent_integration.py    # Python client, LangChain/CrewAI tools
 │
 ├── knowledge/                  # Built indices (gitignored)
 │   └── issues-2024-2025/
@@ -92,9 +101,6 @@ ceph-issue-kb/
 │       ├── merged_bm25_index.json
 │       ├── relationships.json
 │       └── metadata.json
-│
-├── examples/                   # Integration examples
-│   └── agent_integration.py    # Python client, LangChain/CrewAI tools
 │
 ├── SPEC.md                     # MCP contract documentation
 ├── DEVELOPMENT.md              # This file
@@ -219,7 +225,7 @@ connectors.yaml          Environment Variables
 
 Supported methods: `none`, `api_token`, `api_key`, `cookie`
 
-## REST API Endpoints (Phase 4)
+## REST API Endpoints
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -279,11 +285,19 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Current test coverage (47 tests total):
-- `test_config.py` — 8 tests (AuthConfig, ConnectorConfig, load_config, validation)
-- `test_connectors.py` — 13 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
-- `test_models.py` — 8 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship)
-- `test_signal_extractor.py` — 18 tests (all signal types + edge cases)
+Test coverage (177 tests total):
+- `test_config.py` — 10 tests (AuthConfig, ConnectorConfig, load_config, validation)
+- `test_connectors.py` — 18 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
+- `test_models.py` — 10 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship, SearchResult)
+- `test_signal_extractor.py` — 20 tests (all signal types + edge cases)
+- `test_jira_connector.py` — 21 tests (JiraConnector with mocked HTTP)
+- `test_bugzilla_connector.py` — 18 tests (BugzillaConnector with mocked HTTP)
+- `test_rhkb_connector.py` — 16 tests (RHKBConnector with mocked HTTP)
+- `test_normalizer.py` — 51 tests (per-source normalizers + signal integration)
+- `test_embedder.py` — 9 tests (Embedder unit tests)
+- `test_search.py` — 19 tests (BM25, semantic, RRF merge, filters, save/load)
+- `test_builder.py` — 7 tests (builder pipeline with mocked connectors)
+- `workflow_*.py` — integration workflow tests
 
 ## Key Design Decisions
 
@@ -297,25 +311,26 @@ Current test coverage (47 tests total):
 
 ## Dependencies
 
-| Package | Purpose | Phase |
-|---------|---------|-------|
-| requests | HTTP client for connectors | 1 |
-| pyyaml | Config file parsing | 1 |
-| fastembed | ONNX embeddings | 3 |
-| faiss-cpu | Vector similarity search | 3 |
-| rank-bm25 | BM25 keyword search | 3 |
-| mcp | MCP server protocol | 4 |
-| starlette + uvicorn | REST API | 4 |
+| Package | Purpose |
+|---------|---------|
+| requests | HTTP client for connectors |
+| pyyaml | Config file parsing |
+| fastembed | ONNX embeddings (optional: `[search]`) |
+| faiss-cpu | Vector similarity search (optional: `[search]`) |
+| rank-bm25 | BM25 keyword search (optional: `[search]`) |
+| mcp | MCP server protocol (optional: `[server]`) |
+| starlette + uvicorn | REST API (optional: `[server]`) |
+| numpy | Embedding vector operations |
 
 ## Development Phases
 
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
 | 1 | Architecture + models + connector framework + auth + Ceph Tracker connector | Done |
-| 2 | JIRA + Bugzilla + Red Hat KB connectors | Planned |
-| 3 | Normalizer + signal extractor integration + search engine (BM25 + fastembed) | Planned |
-| 4 | Similarity engine (V1) + MCP server + REST API | Planned |
-| 5 | Tests + README + pre-built index + Cursor rule | Tests, README, and Cursor rules done; pre-built index planned |
+| 2 | JIRA + Bugzilla + Red Hat KB connectors | Done |
+| 3 | Normalizer + signal extractor integration + search engine (BM25 + fastembed) | Done |
+| 4 | Similarity engine (V1) + MCP server + REST API | Done |
+| 5 | CLI + documentation + Cursor rules | Done |
 
 ## Maintainer Guide
 
@@ -330,6 +345,9 @@ python3 index_issues.py --connector ceph-tracker --verbose
 
 # Incremental update (issues since a date)
 python3 index_issues.py --config connectors.yaml --since 2025-01-01 --verbose
+
+# Custom output directory
+python3 index_issues.py --output-dir knowledge/issues-2025-2026 --verbose
 ```
 
 ### Adding a New Ceph Version Range
