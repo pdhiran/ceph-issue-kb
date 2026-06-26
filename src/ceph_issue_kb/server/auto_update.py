@@ -4,7 +4,7 @@ and periodically thereafter.
 Runs ``git pull --ff-only origin main`` in a daemon thread so the server
 starts instantly with whatever data is on disk, then hot-reloads the
 search engine if new data was pulled.  A second daemon thread wakes up
-every *update_interval_hours* (default 24) to repeat the check, so
+every *update_interval_hours* (default 12) to repeat the check, so
 long-running processes stay current without restarts.
 
 Every failure path logs a warning and returns — the server is never
@@ -120,7 +120,7 @@ def start_auto_update(
     kb: KnowledgeBase,
     kb_path: Path | None,
     *,
-    update_interval_hours: float = 24,
+    update_interval_hours: float = 12,
 ) -> None:
     """Pull latest KB from git now and schedule periodic re-checks.
 

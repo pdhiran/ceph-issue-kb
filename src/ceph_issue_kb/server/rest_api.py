@@ -177,9 +177,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--update-interval",
         type=float,
-        default=24,
+        default=12,
         metavar="HOURS",
-        help="Hours between periodic KB update checks (default: 24, 0=disable periodic)",
+        help="Hours between periodic KB update checks (default: 12, 0=disable periodic)",
     )
     args = parser.parse_args(argv)
 
