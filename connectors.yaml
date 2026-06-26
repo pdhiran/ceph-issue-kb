@@ -1,0 +1,43 @@
+connectors:
+  ceph-tracker:
+    type: redmine
+    enabled: true
+    base_url: https://tracker.ceph.com
+    project: ceph
+    # auth: null means no authentication required (equivalent to method: "none")
+    auth: null
+    rate_limit: 10
+    since: "2024-01-01"
+
+  ibm-jira:
+    type: jira
+    enabled: false
+    base_url: https://ibm-ceph.atlassian.net
+    project: IBMCEPH
+    auth:
+      method: api_token
+      username_env: JIRA_USERNAME
+      token_env: JIRA_API_TOKEN
+    rate_limit: 5
+    since: "2024-01-01"
+
+  redhat-bugzilla:
+    type: bugzilla
+    enabled: false
+    base_url: https://bugzilla.redhat.com
+    product: "Red Hat Ceph Storage"
+    auth:
+      method: api_key
+      key_env: BUGZILLA_API_KEY
+    rate_limit: 5
+    since: "2024-01-01"
+
+  redhat-kb:
+    type: rhkb
+    enabled: false
+    base_url: https://access.redhat.com
+    auth:
+      method: cookie
+      cookie_env: RH_SSO_COOKIE
+    rate_limit: 2
+    since: "2024-01-01"

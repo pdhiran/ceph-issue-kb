@@ -1,0 +1,95 @@
+---
+description: Guidelines for using the ceph-issue-kb MCP to look up known Ceph issues, find workarounds, and triage failures
+globs:
+alwaysApply: false
+---
+
+# Ceph Issue Lookup
+
+When investigating Ceph failures, errors, or unexpected behavior, use the ceph-issue-kb MCP tools to check for known issues and find resolutions.
+
+## MCP Configuration
+
+```json
+{
+  "mcpServers": {
+    "ceph-issue-kb": {
+      "command": "python3",
+      "args": ["-m", "ceph_issue_kb.server.mcp_server"],
+      "cwd": "/path/to/ceph-issue-kb"
+    }
+  }
+}
+```
+
+## Triage Workflow
+
+1. **Check if it's known**: Use `is_known_issue(error_message, version)` first — it's the fastest path to "this is a known bug."
+
+2. **Search by health warning**: If the user reports a `HEALTH_WARN` or `HEALTH_ERR`, use `search_health_warning(warning)` to find matching issues.
+
+3. **Search by stacktrace**: If a crash or traceback is provided, use `search_stacktrace(stacktrace)` to find issues with similar failure patterns.
+
+4. **Find similar issues**: If no exact match, use `find_similar_issue(description, component)` for semantic similarity search.
+
+5. **Find workarounds**: Once a matching issue is found, use `find_workaround(issue_id)` to get actionable resolution steps.
+
+6. **Find fixes**: Use `find_fix(issue_id)` to find commits, PRs, or backports that fix the issue.
+
+7. **Check related issues**: Use `find_related_issues(issue_id)` to find duplicates or linked issues across sources.
+
+## Cross-KB Integration
+
+- **Verify commands**: Cross-reference any commands found in workarounds with `ceph-cmd-kb`'s `verify_command` to ensure they're valid for the user's Ceph version.
+- **Find documentation**: Use `ceph-doc-kb`'s `search_docs` to find relevant documentation for the affected component.
+- **Verify configs**: If the workaround involves config changes, verify with `ceph-cmd-kb`'s `verify_config`.
+
+## Component Map
+
+- `rados` — Core storage: OSDs, PGs, pools, CRUSH, recovery, scrubbing
+- `rbd` — Block storage: images, snapshots, mirroring, journaling
+- `rgw` — Object gateway: S3/Swift, multisite, users, buckets, lifecycle
+- `cephfs` — File system: MDS, mounting, quotas, snapshots
+- `cephadm` — Deployment: bootstrap, service management, upgrades
+- `dashboard` — Web UI: REST API, monitoring, alerts
+- `mon` — Monitors: quorum, elections, map distribution
+- `mgr` — Manager: modules, orchestrator, telemetry
+
+## Signal Types in Issues
+
+Issues contain extracted signals that enable precise matching:
+
+| Signal | What it captures | Best search tool |
+|--------|-----------------|------------------|
+| Stacktraces | Python/C++ crash traces | `search_stacktrace` |
+| Assertions | `assert`/`abort` failures | `is_known_issue`, `search_issues` |
+| Health warnings | HEALTH_WARN/ERR codes | `search_health_warning` |
+| Commands | Ceph CLI commands mentioned | Cross-ref with cmd-kb |
+| Configs | Config parameters mentioned | Cross-ref with cmd-kb |
+| Log snippets | Timestamped log lines | `search_issues` |
+
+## Available Tools
+
+| Tool | When to use |
+|------|-------------|
+| `is_known_issue` | First step: exact error message match |
+| `search_issues` | General keyword search across all sources |
+| `find_similar_issue` | Semantic similarity when no exact match |
+| `search_stacktrace` | Crash traces, tracebacks, core dumps |
+| `search_health_warning` | HEALTH_WARN or HEALTH_ERR codes |
+| `find_workaround` | Get actionable resolution steps |
+| `find_fix` | Find commits, PRs, backports |
+| `find_related_issues` | Duplicates and linked issues |
+| `hot_issues` | Most active recent issues in a component |
+| `component_health` | Risk assessment: open criticals, regressions |
+| `capabilities` | Discover available operations |
+| `health` | Check connector and index status |
+
+## Issue Sources
+
+| Source | ID prefix | Coverage |
+|--------|-----------|----------|
+| Ceph Tracker (Redmine) | `ceph-tracker` | Public upstream issues |
+| IBM Ceph JIRA | `ibm-jira` | IBM internal issues |
+| Red Hat Bugzilla | `redhat-bugzilla` | RHCS bugs |
+| Red Hat KB | `redhat-kb` | Knowledge base articles |

@@ -1,0 +1,39 @@
+{
+  "issue": {
+    "id": 68051,
+    "project": {"id": 15, "name": "Ceph"},
+    "tracker": {"id": 1, "name": "Bug"},
+    "status": {"id": 1, "name": "New"},
+    "priority": {"id": 2, "name": "Normal"},
+    "author": {"id": 100, "name": "Jane Dev"},
+    "subject": "OSD crash during deep scrub with BlueStore",
+    "description": "OSD.5 crashes during deep scrub with the following stacktrace:\n\n#0 0x00007f1234 in ceph_abort()\n#1 0x00007f1235 in BlueStore::_do_read()\n\nceph osd deep-scrub osd.5\n\nHEALTH_WARN too many PGs per OSD\n\nosd_deep_scrub_interval = 604800\n\n2024-10-15T10:30:00.123456 7f1234 -1 osd.5 shutting down",
+    "created_on": "2024-10-15T08:00:00Z",
+    "updated_on": "2024-10-16T12:00:00Z",
+    "custom_fields": [
+      {"id": 1, "name": "Component", "value": "bluestore"}
+    ],
+    "journals": [
+      {
+        "id": 1001,
+        "user": {"id": 101, "name": "John Reviewer"},
+        "notes": "I can reproduce this on reef 18.2.4. Looks like a race in BlueStore::_do_read.",
+        "created_on": "2024-10-15T10:00:00Z"
+      },
+      {
+        "id": 1002,
+        "user": {"id": 102, "name": "Alice Fix"},
+        "notes": "Fixed by PR #56789. The issue was a missing lock acquisition.",
+        "created_on": "2024-10-16T12:00:00Z"
+      }
+    ],
+    "relations": [
+      {
+        "id": 5001,
+        "issue_id": 68051,
+        "issue_to_id": 67999,
+        "relation_type": "related"
+      }
+    ]
+  }
+}

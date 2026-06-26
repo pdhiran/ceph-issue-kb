@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ceph-issue-kb"
+version = "0.1.0"
+description = "Ceph Issue Intelligence Knowledge Base — indexes issues from Ceph Tracker, JIRA, Bugzilla, and Red Hat KB"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "requests>=2.31",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+search = [
+    "fastembed>=0.3",
+    "faiss-cpu>=1.7",
+    "rank-bm25>=0.2",
+]
+server = [
+    "mcp>=1.0",
+    "uvicorn>=0.27",
+    "starlette>=0.36",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "responses>=0.25",
+]
+all = [
+    "ceph-issue-kb[search,server,dev]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
