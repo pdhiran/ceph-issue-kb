@@ -338,16 +338,6 @@ Test coverage (359 tests total):
 | starlette + uvicorn | REST API (optional: `[server]`) |
 | numpy | Embedding vector operations |
 
-## Development Phases
-
-| Phase | Deliverable | Status |
-|-------|-------------|--------|
-| 1 | Architecture + models + connector framework + auth + Ceph Tracker connector | Done |
-| 2 | JIRA + Bugzilla + Red Hat KB connectors | Done |
-| 3 | Normalizer + signal extractor integration + search engine (BM25 + fastembed) | Done |
-| 4 | Similarity engine (V1) + MCP server + REST API | Done |
-| 5 | CLI + documentation + Cursor rules | Done |
-
 ## Maintainer Guide
 
 ### Rebuilding the Issue Index

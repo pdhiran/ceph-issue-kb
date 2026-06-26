@@ -1,6 +1,6 @@
 # Ceph Issue Intelligence KB
 
-Issue Intelligence Knowledge Base for Ceph engineering. Indexes issues from Ceph Tracker (Redmine), IBM Ceph JIRA, Red Hat Bugzilla, and Red Hat KB into a unified, searchable knowledge base. Answers: **"Has this problem been seen before?"**
+Issue intelligence knowledge base for Ceph engineering. Indexes issues from **4 sources** (Ceph Tracker, IBM JIRA, Red Hat Bugzilla, Red Hat KB) into a unified, searchable knowledge base with **12 MCP tools** and a REST API. Answers: **"Has this problem been seen before?"**
 
 ## Quick Start
 
@@ -68,6 +68,10 @@ Choose the integration that matches your agent:
 
 **Claude Desktop** — start the server, then add to `claude_desktop_config.json`:
 
+```bash
+python -m ceph_issue_kb.server.mcp_server --transport sse --port 8080
+```
+
 ```json
 {
   "mcpServers": {
@@ -78,19 +82,63 @@ Choose the integration that matches your agent:
 
 ---
 
+**Continue / Cline / Windsurf** — start the server and point to the SSE endpoint:
+
+```bash
+python -m ceph_issue_kb.server.mcp_server --transport sse --port 8080
+```
+
+Connect to `http://localhost:8080/sse` in the tool's MCP settings.
+
+---
+
 **IBM watsonx / IBM Bob / LangChain / CrewAI / CI pipelines** — use the REST API:
 
 ```bash
+python -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
+```
+
+```bash
+# Search issues
 curl -X POST http://localhost:8200/api/search_issues \
   -H "Content-Type: application/json" \
   -d '{"query": "OSD slow ops", "component": "rados"}'
+
+# Check if an error is a known issue
+curl -X POST http://localhost:8200/api/is_known_issue \
+  -H "Content-Type: application/json" \
+  -d '{"error_message": "FAILED ceph_assert(googly > 0)", "version": "19.2.0"}'
+
+# Find workaround
+curl -X POST http://localhost:8200/api/find_workaround \
+  -H "Content-Type: application/json" \
+  -d '{"query": "too many PGs per OSD"}'
+
+# Search by health warning
+curl -X POST http://localhost:8200/api/search_health_warning \
+  -H "Content-Type: application/json" \
+  -d '{"warning": "HEALTH_WARN too many PGs per OSD"}'
+
+# Component health
+curl http://localhost:8200/api/component_health/rgw
+
+# Health check
+curl http://localhost:8200/health
 ```
 
 **Additional integration guides:**
 - [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md) — REST API reference, agent integration, deployment options
 - [examples/agent_integration.py](examples/agent_integration.py) — Ready-to-use Python client, LangChain/CrewAI tools
 
-> **VS Code Extension**: A VS Code extension for interactive issue search is planned for a future release. See the [ceph-command-kb VS Code extension](https://github.com/pdhiran/ceph-command-kb/tree/main/vscode-extension) for the pattern.
+### Use it
+
+Once connected, agents automatically check for known Ceph issues. You can also ask directly:
+
+- *"Is `FAILED ceph_assert(googly > 0)` a known issue?"*
+- *"Find workarounds for OSD slow ops during recovery"*
+- *"Search for issues related to HEALTH_WARN too many PGs per OSD"*
+- *"What are the hot issues in the rgw component?"*
+- *"Find issues with this stacktrace: `#0 in BlueStore::_do_write`"*
 
 ## MCP Tools
 
@@ -137,12 +185,12 @@ LangChain and CrewAI wrappers included. See [BOB_INTEGRATION_GUIDE.md](BOB_INTEG
 
 ## Connectors
 
-| Connector | Source | Auth | Status |
-|-----------|--------|------|--------|
-| `RedmineConnector` | [Ceph Tracker](https://tracker.ceph.com) | None (public) | Done |
-| `JiraConnector` | IBM Ceph JIRA | API token | Done |
-| `BugzillaConnector` | Red Hat Bugzilla | API key | Done |
-| `RHKBConnector` | Red Hat KB | Cookie/session | Done |
+| Connector | Source | Auth |
+|-----------|--------|------|
+| `RedmineConnector` | [Ceph Tracker](https://tracker.ceph.com) | None (public) |
+| `JiraConnector` | IBM Ceph JIRA | API token |
+| `BugzillaConnector` | Red Hat Bugzilla | API key |
+| `RHKBConnector` | Red Hat KB | Cookie/session |
 
 ## Documentation
 
