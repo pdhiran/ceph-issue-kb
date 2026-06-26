@@ -297,6 +297,7 @@ class KnowledgeBase:
     # -- Contract tools -------------------------------------------------------
 
     def capabilities(self) -> dict[str, Any]:
+        sources = sorted({issue.source for issue in self._search.issues.values()})
         return {
             "name": KNOWLEDGE_BASE,
             "schema_version": SCHEMA_VERSION,
@@ -313,7 +314,7 @@ class KnowledgeBase:
                 "hot_issues",
                 "component_health",
             ],
-            "sources": ["ceph-tracker", "ibm-jira", "redhat-bugzilla", "redhat-kb"],
+            "sources": sources,
             "entity_counts": {"issues": len(self._search.issues)},
         }
 

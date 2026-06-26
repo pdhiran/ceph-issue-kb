@@ -355,6 +355,12 @@ class SearchEngine:
             )
 
         engine._issues = {issue.entity_id: issue for issue in all_issues}
+        dedup_dropped = len(all_issues) - len(engine._issues)
+        if dedup_dropped:
+            logger.warning(
+                "Dropped %d duplicate entity_ids during load (%d -> %d unique)",
+                dedup_dropped, len(all_issues), len(engine._issues),
+            )
         if all_issues:
             engine._build_bm25(all_issues)
 

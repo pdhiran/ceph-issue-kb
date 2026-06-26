@@ -1,6 +1,6 @@
 # Ceph Issue Intelligence KB
 
-Searchable knowledge base of **14,670+ Ceph issues** from IBM Ceph JIRA and Red Hat KB. Ships pre-built — clone, install, and immediately search known issues, workarounds, and fixes from your AI agent.
+Searchable knowledge base of **14,600+ Ceph issues** from IBM Ceph JIRA and Red Hat KB. Ships pre-built — clone, install, and immediately search known issues, workarounds, and fixes from your AI agent.
 
 ## Setup
 
@@ -122,7 +122,7 @@ Once connected, agents automatically check for known Ceph issues. You can also a
 | Source | Issues | Description |
 |--------|--------|-------------|
 | IBM Ceph JIRA | 14,037 | Internal Ceph bug tracker and feature requests |
-| Red Hat KB | 633 | Customer-facing knowledge base articles |
+| Red Hat KB | 600 | Customer-facing knowledge base articles |
 
 ## VS Code Extension
 
