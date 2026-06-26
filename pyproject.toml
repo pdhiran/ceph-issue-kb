@@ -36,9 +36,6 @@ all = [
     "ceph-issue-kb[search,server,dev]",
 ]
 
-[project.scripts]
-ceph-issue-kb = "ceph_issue_kb.cli:main"
-
 [tool.setuptools.packages.find]
 where = ["src"]
 

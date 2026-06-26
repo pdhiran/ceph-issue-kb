@@ -35,7 +35,7 @@ class RedmineConnector(BaseConnector):
         self._session.headers.update(
             {"Content-Type": "application/json", "Accept": "application/json"}
         )
-        self._min_interval = max(1.0 / config.rate_limit, 1)
+        self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
 
     def _throttle(self) -> None:
@@ -51,7 +51,7 @@ class RedmineConnector(BaseConnector):
             resp = self._session.get(url, params=params, timeout=30)
             resp.raise_for_status()
             return resp.json()
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             raise ConnectorError(f"Redmine request failed: {path} — {exc}") from exc
 
     def authenticate(self) -> None:

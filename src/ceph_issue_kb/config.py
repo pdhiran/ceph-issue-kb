@@ -73,6 +73,8 @@ def load_config(path: str | Path) -> Config:
     if not p.exists():
         raise FileNotFoundError(f"Config file not found: {p}")
     raw = yaml.safe_load(p.read_text())
+    if raw is None or not isinstance(raw, dict):
+        raise ValueError(f"Invalid config: empty or non-mapping YAML in {p}")
     if "connectors" not in raw:
         raise ValueError(f"Invalid config: missing 'connectors' key in {p}")
     connectors = {

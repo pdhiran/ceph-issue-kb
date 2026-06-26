@@ -5,18 +5,28 @@ Issue Intelligence Knowledge Base for Ceph engineering. Indexes issues from Ceph
 ## Quick Start
 
 ```bash
-# Install
-pip install -e .
+# Install (with dev dependencies for testing)
+pip install -e ".[dev]"
 
-# Fetch and index issues (Ceph Tracker — public, no auth required)
-python3 index_issues.py --connector ceph-tracker --verbose
-
-# With all sources (requires credentials)
-export JIRA_USERNAME=your_user JIRA_API_TOKEN=your_token
-export BUGZILLA_API_KEY=your_key
-export RH_SSO_COOKIE=your_cookie
-python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
+# Run tests
+pytest
 ```
+
+Use the connector framework programmatically:
+
+```python
+from ceph_issue_kb.config import load_config
+from ceph_issue_kb.connectors import get_connector
+
+config = load_config("connectors.yaml")
+connector = get_connector(config.connectors["ceph-tracker"])
+connector.authenticate()
+
+issue = connector.fetch("68051")
+print(issue.source, issue.source_id, issue.data.get("subject"))
+```
+
+> **Note:** The MCP server, REST API, and `index_issues.py` CLI are coming in later phases. Phase 1 provides the connector framework, models, config loading, and signal extraction.
 
 ## Architecture
 
@@ -26,7 +36,9 @@ python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 - **Two-tier search**: BM25 keyword match (exact error messages) + fastembed semantic search (conceptual similarity)
 - **Per-source storage**: Each connector's issues stored separately for scalability
 
-## Connect Your Agent
+## Connect Your Agent (Coming in Phase 4)
+
+> **Note:** The MCP server and REST API are not yet implemented. The configuration below is a preview of what's coming in Phase 4. Today, use the connector framework programmatically (see Quick Start above).
 
 Choose the integration that matches your agent:
 
@@ -46,15 +58,9 @@ Choose the integration that matches your agent:
 }
 ```
 
-Restart Cursor. The MCP server starts automatically.
-
 ---
 
 **Claude Desktop** — start the server, then add to `claude_desktop_config.json`:
-
-```bash
-python3 -m ceph_issue_kb.server.mcp_server --transport sse --port 8080
-```
 
 ```json
 {
@@ -66,40 +72,12 @@ python3 -m ceph_issue_kb.server.mcp_server --transport sse --port 8080
 
 ---
 
-**Continue / Cline / Windsurf** — start the server and point to the SSE endpoint:
+**IBM watsonx / IBM Bob / LangChain / CrewAI / CI pipelines** — use the REST API:
 
 ```bash
-python3 -m ceph_issue_kb.server.mcp_server --transport sse --port 8080
-```
-
-Connect to `http://localhost:8080/sse` in the tool's MCP settings.
-
----
-
-**IBM watsonx / IBM Bob / LangChain / CrewAI / CI pipelines** — use the REST API (Phase 4):
-
-```bash
-python3 -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
-```
-
-```bash
-# Check if an error is known
-curl -X POST http://localhost:8200/api/is_known_issue \
-  -H "Content-Type: application/json" \
-  -d '{"error_message": "FAILED ceph_assert(googly > 0)", "version": "19.2.0"}'
-
-# Search issues
 curl -X POST http://localhost:8200/api/search_issues \
   -H "Content-Type: application/json" \
   -d '{"query": "OSD slow ops", "component": "rados"}'
-
-# Find workaround
-curl -X POST http://localhost:8200/api/find_workaround \
-  -H "Content-Type: application/json" \
-  -d '{"query": "too many PGs per OSD"}'
-
-# Health check
-curl http://localhost:8200/health
 ```
 
 **Additional integration guides:**

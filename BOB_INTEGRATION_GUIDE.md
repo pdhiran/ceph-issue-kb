@@ -458,6 +458,14 @@ You have access to the Ceph Issue Intelligence KB. Use it as follows:
 - Subsequent requests are fast (< 200ms for BM25, < 500ms for semantic)
 - Consider pre-warming the cache on startup
 
+## Security Considerations
+
+The REST API (Phase 4) will serve indexed issue data that may include confidential content from IBM JIRA and Red Hat Bugzilla. Keep the following in mind:
+
+- **Default bind address**: The REST API should default to `127.0.0.1`, not `0.0.0.0`. Only bind to `0.0.0.0` when behind a reverse proxy or in a trusted network.
+- **Authentication**: Production deployments should add authentication in front of the API — an API key, a reverse proxy with auth (e.g., nginx + OAuth), or mTLS.
+- **Credential isolation**: Do not pass indexer credentials (`JIRA_USERNAME`, `JIRA_API_TOKEN`, `BUGZILLA_API_KEY`, `RH_SSO_COOKIE`) into the serving container. The serving phase only needs the pre-built `knowledge/` directory, not access to issue trackers.
+
 ## Support
 
 - GitHub Issues: https://github.com/pdhiran/ceph-issue-kb/issues

@@ -4,6 +4,7 @@ connectors:
     enabled: true
     base_url: https://tracker.ceph.com
     project: ceph
+    # auth: null means no authentication required (equivalent to method: "none")
     auth: null
     rate_limit: 10
     since: "2024-01-01"

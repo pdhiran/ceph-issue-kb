@@ -31,13 +31,15 @@ The system has two distinct phases:
 
 **Server mode** runs anywhere — loads pre-built indices from `knowledge/`. No issue tracker access required.
 
-## Source Tree
+## Full Planned Source Tree
+
+Files marked with a phase comment are not yet implemented.
 
 ```
 ceph-issue-kb/
 ├── pyproject.toml              # Package config, dependencies
 ├── connectors.yaml             # Connector configuration (sources, auth, rate limits)
-├── index_issues.py             # CLI: fetch + normalize + index
+├── index_issues.py             # CLI: fetch + normalize + index          # Phase 3 — not yet implemented
 │
 ├── src/ceph_issue_kb/
 │   ├── __init__.py
@@ -50,25 +52,25 @@ ceph-issue-kb/
 │   │   ├── base.py             # BaseConnector ABC
 │   │   ├── auth.py             # AuthProvider (env-var credential resolution)
 │   │   ├── redmine.py          # Ceph Tracker connector (Phase 1)
-│   │   ├── jira.py             # IBM JIRA connector (Phase 2)
-│   │   ├── bugzilla.py         # Red Hat Bugzilla connector (Phase 2)
-│   │   └── rhkb.py             # Red Hat KB connector (Phase 2)
+│   │   ├── jira.py             # IBM JIRA connector                     # Phase 2 — not yet implemented
+│   │   ├── bugzilla.py         # Red Hat Bugzilla connector             # Phase 2 — not yet implemented
+│   │   └── rhkb.py             # Red Hat KB connector                   # Phase 2 — not yet implemented
 │   │
 │   ├── indexer/
 │   │   ├── __init__.py
-│   │   ├── normalizer.py       # RawIssue → NormalizedIssue (Phase 3)
-│   │   ├── embedder.py         # fastembed ONNX + FAISS (Phase 3)
-│   │   └── builder.py          # Pipeline orchestrator (Phase 3)
+│   │   ├── normalizer.py       # RawIssue → NormalizedIssue             # Phase 3 — not yet implemented
+│   │   ├── embedder.py         # fastembed ONNX + FAISS                 # Phase 3 — not yet implemented
+│   │   └── builder.py          # Pipeline orchestrator                  # Phase 3 — not yet implemented
 │   │
 │   ├── search/
 │   │   ├── __init__.py
-│   │   ├── engine.py           # BM25 + semantic search (Phase 3)
-│   │   └── similarity.py       # Similarity scoring V1 (Phase 4)
+│   │   ├── engine.py           # BM25 + semantic search                 # Phase 3 — not yet implemented
+│   │   └── similarity.py       # Similarity scoring V1                  # Phase 4 — not yet implemented
 │   │
 │   └── server/
 │       ├── __init__.py
-│       ├── mcp_server.py       # MCP server (Phase 4)
-│       └── rest_api.py         # REST API (Phase 4)
+│       ├── mcp_server.py       # MCP server                             # Phase 4 — not yet implemented
+│       └── rest_api.py         # REST API                               # Phase 4 — not yet implemented
 │
 ├── tests/
 │   ├── fixtures/               # Sample Redmine API responses
@@ -277,11 +279,11 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Current test coverage:
+Current test coverage (47 tests total):
 - `test_config.py` — 8 tests (AuthConfig, ConnectorConfig, load_config, validation)
-- `test_connectors.py` — 11 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
-- `test_models.py` — 7 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship)
-- `test_signal_extractor.py` — 21 tests (all signal types + edge cases)
+- `test_connectors.py` — 13 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
+- `test_models.py` — 8 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship)
+- `test_signal_extractor.py` — 18 tests (all signal types + edge cases)
 
 ## Key Design Decisions
 
@@ -313,7 +315,7 @@ Current test coverage:
 | 2 | JIRA + Bugzilla + Red Hat KB connectors | Planned |
 | 3 | Normalizer + signal extractor integration + search engine (BM25 + fastembed) | Planned |
 | 4 | Similarity engine (V1) + MCP server + REST API | Planned |
-| 5 | Tests + README + pre-built index + Cursor rule | Planned |
+| 5 | Tests + README + pre-built index + Cursor rule | Tests, README, and Cursor rules done; pre-built index planned |
 
 ## Maintainer Guide
 

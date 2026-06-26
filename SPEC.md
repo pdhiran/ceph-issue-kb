@@ -35,7 +35,7 @@ Each KB exposes a consistent interface so agents can discover capabilities, chec
 
 ### Recommended Tools
 
-These are not mandatory but should be implemented when applicable:
+These are the abstract platform contract tools. They define the interface that any Engineering Intelligence KB should implement when applicable. The `ceph-issue-kb` project implements these as the domain-specific tools listed in the "Domain-Specific Tools" section below (e.g., `search` becomes `search_issues`, `related` becomes `find_related_issues`).
 
 | Tool | Description |
 |------|-------------|

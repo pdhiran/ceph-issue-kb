@@ -158,10 +158,12 @@ def _extract_configs(text: str) -> list[str]:
 
 
 def _extract_log_snippets(text: str, max_snippets: int = 50) -> list[str]:
+    seen: set[str] = set()
     results: list[str] = []
     for m in _LOG_LINE_PATTERN.finditer(text):
         line = m.group(0).strip()
-        if len(line) > 20:
+        if len(line) > 20 and line not in seen:
+            seen.add(line)
             results.append(line)
         if len(results) >= max_snippets:
             break
