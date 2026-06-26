@@ -1,0 +1,51 @@
+---
+description: Guidelines for using the ceph-issue-kb MCP to look up known Ceph issues, find workarounds, and triage failures
+globs:
+alwaysApply: false
+---
+
+# Ceph Issue Lookup
+
+When investigating Ceph failures, errors, or unexpected behavior:
+
+## Triage Workflow
+
+1. **Check if it's known**: Use `is_known_issue(error_message, version)` first — it's the fastest path to "this is a known bug."
+
+2. **Search by health warning**: If the user reports a `HEALTH_WARN` or `HEALTH_ERR`, use `search_health_warning(warning)` to find matching issues.
+
+3. **Search by stacktrace**: If a crash or traceback is provided, use `search_stacktrace(stacktrace)` to find issues with similar failure patterns.
+
+4. **Find workarounds**: Once a matching issue is found, use `find_workaround(issue_id)` to get actionable resolution steps.
+
+5. **Find fixes**: Use `find_fix(issue_id)` to find commits, PRs, or backports that fix the issue.
+
+## Cross-KB Integration
+
+- **Verify commands**: Cross-reference any commands found in workarounds with `ceph-cmd-kb`'s `verify_command` to ensure they're valid for the user's Ceph version.
+- **Find documentation**: Use `ceph-doc-kb`'s `search_docs` to find relevant documentation for the affected component.
+- **Verify configs**: If the workaround involves config changes, verify with `ceph-cmd-kb`'s `verify_config`.
+
+## Component Map
+
+- `rados` — Core storage: OSDs, PGs, pools, CRUSH, recovery, scrubbing
+- `rbd` — Block storage: images, snapshots, mirroring, journaling
+- `rgw` — Object gateway: S3/Swift, multisite, users, buckets, lifecycle
+- `cephfs` — File system: MDS, mounting, quotas, snapshots
+- `cephadm` — Deployment: bootstrap, service management, upgrades
+- `dashboard` — Web UI: REST API, monitoring, alerts
+- `mon` — Monitors: quorum, elections, map distribution
+- `mgr` — Manager: modules, orchestrator, telemetry
+
+## Signal Types in Issues
+
+Issues contain extracted signals that enable precise matching:
+
+| Signal | What it captures | Best search tool |
+|--------|-----------------|------------------|
+| Stacktraces | Python/C++ crash traces | `search_stacktrace` |
+| Assertions | `assert`/`abort` failures | `search_issues` |
+| Health warnings | HEALTH_WARN/ERR codes | `search_health_warning` |
+| Commands | Ceph CLI commands mentioned | Cross-ref with cmd-kb |
+| Configs | Config parameters mentioned | Cross-ref with cmd-kb |
+| Log snippets | Timestamped log lines | `search_issues` |
