@@ -101,6 +101,15 @@ class NormalizedIssue:
             self.indexed_at = datetime.now(timezone.utc).isoformat()
 
 
+@dataclass
+class SearchResult:
+    """A single result from the search engine."""
+
+    issue: NormalizedIssue
+    score: float
+    search_source: str  # "bm25", "semantic", "merged"
+
+
 def make_entity_id(source: str, source_id: str) -> str:
     """Deterministic entity ID from source + source_id."""
     key = f"{source}:{source_id}"
