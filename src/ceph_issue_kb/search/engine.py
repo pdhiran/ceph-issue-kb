@@ -138,6 +138,11 @@ class SearchEngine:
             corpus.append(tokens)
             entity_ids.append(issue.entity_id)
 
+        if not corpus:
+            self._bm25 = None
+            self._bm25_entity_ids = []
+            return
+
         self._bm25 = BM25Okapi(corpus)
         self._bm25_entity_ids = entity_ids
 
