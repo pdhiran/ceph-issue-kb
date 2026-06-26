@@ -121,12 +121,12 @@ class TestSearchIssuesEndpoint:
             assert "osd" in item["components"]
 
 
-# -- POST /api/find_similar -------------------------------------------------
+# -- POST /api/find_similar_issue -------------------------------------------
 
 
 class TestFindSimilarEndpoint:
     def test_basic(self, client):
-        resp = client.post("/api/find_similar", json={
+        resp = client.post("/api/find_similar_issue", json={
             "description": "OSD crashes during scrub",
         })
         assert resp.status_code == 200
@@ -134,7 +134,7 @@ class TestFindSimilarEndpoint:
         assert "results" in data
 
     def test_missing_description(self, client):
-        resp = client.post("/api/find_similar", json={})
+        resp = client.post("/api/find_similar_issue", json={})
         assert resp.status_code == 400
 
 
@@ -187,19 +187,19 @@ class TestFindFixEndpoint:
         assert resp.status_code == 400
 
 
-# -- POST /api/find_related -------------------------------------------------
+# -- POST /api/find_related_issues ------------------------------------------
 
 
 class TestFindRelatedEndpoint:
     def test_not_found(self, client):
-        resp = client.post("/api/find_related", json={
+        resp = client.post("/api/find_related_issues", json={
             "issue_id": "0000000000000000",
         })
         assert resp.status_code == 200
         assert "error" in resp.json()
 
     def test_missing_issue_id(self, client):
-        resp = client.post("/api/find_related", json={})
+        resp = client.post("/api/find_related_issues", json={})
         assert resp.status_code == 400
 
 

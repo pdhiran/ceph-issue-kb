@@ -809,14 +809,14 @@ class TestWorkflowF_RESTAPI:
 
     def test_find_similar(self, client):
         resp = client.post(
-            "/api/find_similar",
+            "/api/find_similar_issue",
             json={"description": "OSD crash during deep scrub"},
         )
         assert resp.status_code == 200
         assert resp.json()["total"] > 0
 
     def test_find_similar_missing_description(self, client):
-        resp = client.post("/api/find_similar", json={})
+        resp = client.post("/api/find_similar_issue", json={})
         assert resp.status_code == 400
 
     def test_is_known_issue(self, client):
@@ -855,12 +855,12 @@ class TestWorkflowF_RESTAPI:
 
     def test_find_related(self, client):
         eid = make_entity_id("ceph-tracker", "55001")
-        resp = client.post("/api/find_related", json={"issue_id": eid})
+        resp = client.post("/api/find_related_issues", json={"issue_id": eid})
         assert resp.status_code == 200
         assert resp.json()["total"] > 0
 
     def test_find_related_missing_id(self, client):
-        resp = client.post("/api/find_related", json={})
+        resp = client.post("/api/find_related_issues", json={})
         assert resp.status_code == 400
 
     def test_search_stacktrace(self, client):

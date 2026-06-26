@@ -126,7 +126,7 @@ All tool responses are JSON. Error responses use:
 }
 ```
 
-Search results follow a consistent schema:
+Search results follow a consistent schema. Each item in the `results` array contains:
 
 ```json
 {
@@ -141,13 +141,24 @@ Search results follow a consistent schema:
   "priority": "high",
   "components": ["dashboard"],
   "affected_versions": ["19.2.0"],
-  "stacktraces": ["Traceback (most recent call last):\n  ..."],
-  "assertions": ["ceph_abort_msg(\"not implemented\")"],
+  "fixed_versions": [],
   "health_warnings": ["HEALTH_WARN"],
-  "commands_mentioned": ["ceph osd pool set rbd size 3"],
-  "configs_mentioned": ["mon_max_pg_per_osd"],
+  "assertions": ["ceph_abort_msg(\"not implemented\")"],
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-07-01T14:20:00Z",
+  "score": 0.0328
+}
+```
+
+The `find_similar_issue` endpoint returns `similarity` and `matched_signals` instead of `score`:
+
+```json
+{
+  "entity_id": "22b7cddd3f1fc2b7",
+  "entity_type": "issue",
+  "...": "...",
   "similarity": 0.87,
-  "matched_signals": ["same assertion", "same component"]
+  "matched_signals": ["similar title (45%)", "same component (dashboard)"]
 }
 ```
 

@@ -67,13 +67,21 @@ ceph-issue-kb/
 │   │
 │   └── server/
 │       ├── __init__.py
+│       ├── kb.py               # KnowledgeBase facade (shared by MCP + REST)
 │       ├── mcp_server.py       # MCP server (stdio/SSE)
 │       └── rest_api.py         # REST API (Starlette + Uvicorn)
 │
 ├── tests/
 │   ├── fixtures/               # Sample API responses per connector
 │   │   ├── redmine_issue.json
-│   │   └── redmine_issues_page.json
+│   │   ├── redmine_issues_page.json
+│   │   ├── jira_issue.json
+│   │   ├── jira_search.json
+│   │   ├── bugzilla_bug.json
+│   │   ├── bugzilla_comments.json
+│   │   ├── bugzilla_search.json
+│   │   ├── rhkb_article.json
+│   │   └── rhkb_search.json
 │   ├── test_config.py          # Config loading + validation
 │   ├── test_connectors.py      # Auth, factory, RedmineConnector
 │   ├── test_models.py          # Entity ID, dataclasses
@@ -84,8 +92,12 @@ ceph-issue-kb/
 │   ├── test_normalizer.py      # Per-source normalizers + signal integration
 │   ├── test_embedder.py        # Embedder unit tests
 │   ├── test_search.py          # Search engine (BM25, semantic, merge, filters)
+│   ├── test_similarity.py      # Similarity engine + fingerprinting
+│   ├── test_mcp_server.py      # MCP server tool registration + responses
+│   ├── test_rest_api.py        # REST API endpoints + error handling
 │   ├── test_builder.py         # Builder pipeline tests
-│   └── workflow_*.py           # Integration workflow tests
+│   ├── test_comprehensive_workflows.py  # End-to-end integration workflows
+│   └── workflow_*.py           # Integration workflow scripts
 │
 ├── examples/                   # Integration examples
 │   └── agent_integration.py    # Python client, LangChain/CrewAI tools
@@ -237,8 +249,8 @@ Supported methods: `none`, `api_token`, `api_key`, `cookie`
 | `/api/find_related_issues` | POST | Get related/duplicate/linked issues |
 | `/api/search_stacktrace` | POST | Find issues with similar stacktraces |
 | `/api/search_health_warning` | POST | Find issues for a health warning |
-| `/api/hot_issues` | POST | Most active recent issues |
-| `/api/component_health` | POST | Open criticals, regressions, blockers |
+| `/api/hot_issues` | GET | Most active recent issues |
+| `/api/component_health/{component}` | GET | Open criticals, regressions, blockers |
 | `/health` | GET | Server health + connector status |
 | `/capabilities` | GET | Server capabilities and entity types |
 
@@ -285,19 +297,23 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Test coverage (177 tests total):
-- `test_config.py` — 10 tests (AuthConfig, ConnectorConfig, load_config, validation)
-- `test_connectors.py` — 18 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
-- `test_models.py` — 10 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship, SearchResult)
-- `test_signal_extractor.py` — 20 tests (all signal types + edge cases)
-- `test_jira_connector.py` — 21 tests (JiraConnector with mocked HTTP)
-- `test_bugzilla_connector.py` — 18 tests (BugzillaConnector with mocked HTTP)
-- `test_rhkb_connector.py` — 16 tests (RHKBConnector with mocked HTTP)
-- `test_normalizer.py` — 51 tests (per-source normalizers + signal integration)
-- `test_embedder.py` — 9 tests (Embedder unit tests)
-- `test_search.py` — 19 tests (BM25, semantic, RRF merge, filters, save/load)
-- `test_builder.py` — 7 tests (builder pipeline with mocked connectors)
-- `workflow_*.py` — integration workflow tests
+Test coverage (359 tests total):
+- `test_config.py` — 8 tests (AuthConfig, ConnectorConfig, load_config, validation)
+- `test_connectors.py` — 16 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
+- `test_models.py` — 8 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship, SearchResult)
+- `test_signal_extractor.py` — 18 tests (all signal types + edge cases)
+- `test_jira_connector.py` — 19 tests (JiraConnector with mocked HTTP)
+- `test_bugzilla_connector.py` — 16 tests (BugzillaConnector with mocked HTTP)
+- `test_rhkb_connector.py` — 14 tests (RHKBConnector with mocked HTTP)
+- `test_normalizer.py` — 49 tests (per-source normalizers + signal integration)
+- `test_embedder.py` — 7 tests (Embedder unit tests)
+- `test_search.py` — 17 tests (BM25, semantic, RRF merge, filters, save/load)
+- `test_similarity.py` — 24 tests (similarity engine, fingerprinting, Jaccard)
+- `test_mcp_server.py` — 33 tests (MCP server tool registration + responses)
+- `test_rest_api.py` — 22 tests (REST API endpoints, error handling)
+- `test_builder.py` — 5 tests (builder pipeline with mocked connectors)
+- `test_comprehensive_workflows.py` — 103 tests (end-to-end integration workflows)
+- `workflow_*.py` — integration workflow scripts
 
 ## Key Design Decisions
 

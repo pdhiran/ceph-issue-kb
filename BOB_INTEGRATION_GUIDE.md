@@ -66,12 +66,10 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "connectors": {
-    "ceph-tracker": {"status": "ok", "issue_count": 12500},
-    "ibm-jira": {"status": "ok", "issue_count": 3200}
-  },
   "total_issues": 15700,
-  "index_status": "ready"
+  "index_status": "loaded",
+  "schema_version": "1.0",
+  "kb_path": "knowledge/issues-2024-2025"
 }
 ```
 
@@ -154,17 +152,13 @@ curl -X POST http://localhost:8200/api/find_fix \
 ### Component Health
 
 ```bash
-curl -X POST http://localhost:8200/api/component_health \
-  -H "Content-Type: application/json" \
-  -d '{"component": "rgw"}'
+curl http://localhost:8200/api/component_health/rgw
 ```
 
 ### Hot Issues
 
 ```bash
-curl -X POST http://localhost:8200/api/hot_issues \
-  -H "Content-Type: application/json" \
-  -d '{"component": "cephfs", "limit": 10}'
+curl "http://localhost:8200/api/hot_issues?component=cephfs&limit=10"
 ```
 
 ### Health Check
@@ -191,8 +185,8 @@ curl http://localhost:8200/capabilities
 | `/api/find_related_issues` | POST | Get related/duplicate/linked issues |
 | `/api/search_stacktrace` | POST | Find issues with similar stacktraces |
 | `/api/search_health_warning` | POST | Find issues for a health warning |
-| `/api/hot_issues` | POST | Most active recent issues |
-| `/api/component_health` | POST | Open criticals, regressions, blockers |
+| `/api/hot_issues` | GET | Most active recent issues |
+| `/api/component_health/{component}` | GET | Open criticals, regressions, blockers |
 | `/health` | GET | Server health + connector status |
 | `/capabilities` | GET | Server capabilities and entity types |
 

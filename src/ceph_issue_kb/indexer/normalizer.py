@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Callable
 
 from ceph_issue_kb.models import (
     Comment,
@@ -22,9 +22,9 @@ from ceph_issue_kb.signal_extractor import ExtractedSignals, extract_signals
 
 logger = logging.getLogger(__name__)
 
-_SOURCE_NORMALIZERS: dict[str, "_NormalizerFn"] = {}
+_NormalizerFn = Callable[["RawIssue"], "NormalizedIssue"]
 
-type _NormalizerFn = "callable[[RawIssue], NormalizedIssue]"
+_SOURCE_NORMALIZERS: dict[str, _NormalizerFn] = {}
 
 _SUMMARY_MAX_CHARS = 500
 

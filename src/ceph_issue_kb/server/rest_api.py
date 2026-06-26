@@ -34,11 +34,21 @@ def _error_response(message: str, status_code: int = 400) -> JSONResponse:
     return JSONResponse({"error": message, "status": "error"}, status_code=status_code)
 
 
+async def _parse_json(request: Request) -> dict | None:
+    """Parse JSON body, returning None on decode failure."""
+    try:
+        return await request.json()
+    except Exception:
+        return None
+
+
 def create_app(kb: KnowledgeBase) -> Starlette:
     """Build a Starlette application wired to *kb*."""
 
     async def post_search_issues(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         query = body.get("query")
         if not query:
             return _error_response("'query' is required")
@@ -52,7 +62,9 @@ def create_app(kb: KnowledgeBase) -> Starlette:
         ))
 
     async def post_find_similar(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         description = body.get("description")
         if not description:
             return _error_response("'description' is required")
@@ -63,7 +75,9 @@ def create_app(kb: KnowledgeBase) -> Starlette:
         ))
 
     async def post_is_known_issue(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         error_message = body.get("error_message")
         if not error_message:
             return _error_response("'error_message' is required")
@@ -72,35 +86,45 @@ def create_app(kb: KnowledgeBase) -> Starlette:
         ))
 
     async def post_find_workaround(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         query = body.get("query")
         if not query:
             return _error_response("'query' is required")
         return JSONResponse(kb.find_workaround(query))
 
     async def post_find_fix(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         query = body.get("query")
         if not query:
             return _error_response("'query' is required")
         return JSONResponse(kb.find_fix(query))
 
     async def post_find_related(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         issue_id = body.get("issue_id")
         if not issue_id:
             return _error_response("'issue_id' is required")
         return JSONResponse(kb.find_related_issues(issue_id))
 
     async def post_search_stacktrace(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         stacktrace = body.get("stacktrace")
         if not stacktrace:
             return _error_response("'stacktrace' is required")
         return JSONResponse(kb.search_stacktrace(stacktrace))
 
     async def post_search_health_warning(request: Request) -> JSONResponse:
-        body = await request.json()
+        body = await _parse_json(request)
+        if body is None:
+            return _error_response("Invalid JSON body")
         warning = body.get("warning")
         if not warning:
             return _error_response("'warning' is required")
@@ -123,11 +147,11 @@ def create_app(kb: KnowledgeBase) -> Starlette:
 
     routes = [
         Route("/api/search_issues", post_search_issues, methods=["POST"]),
-        Route("/api/find_similar", post_find_similar, methods=["POST"]),
+        Route("/api/find_similar_issue", post_find_similar, methods=["POST"]),
         Route("/api/is_known_issue", post_is_known_issue, methods=["POST"]),
         Route("/api/find_workaround", post_find_workaround, methods=["POST"]),
         Route("/api/find_fix", post_find_fix, methods=["POST"]),
-        Route("/api/find_related", post_find_related, methods=["POST"]),
+        Route("/api/find_related_issues", post_find_related, methods=["POST"]),
         Route("/api/search_stacktrace", post_search_stacktrace, methods=["POST"]),
         Route("/api/search_health_warning", post_search_health_warning, methods=["POST"]),
         Route("/api/hot_issues", get_hot_issues, methods=["GET"]),

@@ -11,9 +11,10 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
+if TYPE_CHECKING:
+    import numpy as np
 
 from ceph_issue_kb.models import NormalizedIssue, SearchResult
 
@@ -90,6 +91,7 @@ class SearchEngine:
         self._faiss_index = None
         self._faiss_entity_ids: list[str] = []
         self._faiss_dim: int = 0
+        self._embed_model = None
 
     @property
     def issues(self) -> dict[str, NormalizedIssue]:
@@ -148,6 +150,7 @@ class SearchEngine:
 
     def _set_faiss(self, vectors: np.ndarray, entity_ids: list[str]) -> None:
         try:
+            import numpy as np
             import faiss  # type: ignore[import-untyped]
         except ImportError:
             logger.warning("faiss-cpu not installed; semantic search disabled")
@@ -212,17 +215,24 @@ class SearchEngine:
                 results.append(SearchResult(issue=issue, score=score, search_source="bm25"))
         return results
 
+    def _get_embed_model(self):
+        """Return the cached TextEmbedding model, loading it on first use."""
+        if self._embed_model is None:
+            from fastembed import TextEmbedding  # type: ignore[import-untyped]
+            self._embed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        return self._embed_model
+
     def _search_semantic(self, query: str, limit: int = 20) -> list[SearchResult]:
         if self._faiss_index is None or self._faiss_index.ntotal == 0:
             return []
 
         try:
-            from fastembed import TextEmbedding  # type: ignore[import-untyped]
+            import numpy as np
             import faiss  # type: ignore[import-untyped]
+            model = self._get_embed_model()
         except ImportError:
             return []
 
-        model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
         q_vec = np.array(list(model.embed([query])), dtype=np.float32)
         faiss.normalize_L2(q_vec)
 

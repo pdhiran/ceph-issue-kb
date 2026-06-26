@@ -152,7 +152,7 @@ class CephIssueKBClient:
         limit: int = 10,
     ) -> list[dict]:
         """Get the most active recent issues, optionally filtered by component."""
-        data = self._post("/api/hot_issues", {
+        data = self._get("/api/hot_issues", {
             "component": component,
             "limit": limit,
         })
@@ -160,9 +160,7 @@ class CephIssueKBClient:
 
     def component_health(self, component: str) -> dict:
         """Get open criticals, regressions, and blockers for a component."""
-        return self._post("/api/component_health", {
-            "component": component,
-        })
+        return self._get(f"/api/component_health/{component}")
 
 
 # --- Convenience functions for agent frameworks ---
