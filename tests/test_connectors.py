@@ -54,6 +54,13 @@ class TestAuthProvider:
             with pytest.raises(AuthError, match="not set or empty"):
                 AuthProvider().resolve(auth)
 
+    def test_offline_token_from_env(self):
+        auth = AuthConfig(method="offline_token", token_env="TEST_OFFLINE")
+        with patch.dict("os.environ", {"TEST_OFFLINE": "my-offline-token"}):
+            creds = AuthProvider().resolve(auth)
+            assert creds.method == "offline_token"
+            assert creds.token == "my-offline-token"
+
     def test_unknown_method_raises(self):
         auth = AuthConfig(method="kerberos")
         with pytest.raises(AuthError, match="Unknown auth method"):

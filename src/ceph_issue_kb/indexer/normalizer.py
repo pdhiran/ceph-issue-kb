@@ -394,9 +394,20 @@ def _normalize_rhkb(raw: RawIssue) -> NormalizedIssue:
 
     title = _safe_str(data.get("title", ""))
     abstract = _safe_str(data.get("abstract", ""))
+
     body_html = _safe_str(data.get("body", ""))
     body_text = _strip_html(body_html)
-    description = body_text if body_text else abstract
+
+    hydra_sections = [
+        data.get("issue", ""),
+        data.get("solution_environment", ""),
+        data.get("solution_rootcause", ""),
+        data.get("solution_resolution", ""),
+        data.get("solution_diagnosticsteps", ""),
+    ]
+    hydra_text = "\n".join(_safe_str(s) for s in hydra_sections if s).strip()
+
+    description = body_text or hydra_text or abstract
 
     tags = [str(t).lower() for t in data.get("tags", [])]
     components = [t for t in tags if t in _CEPH_COMPONENTS]
@@ -419,7 +430,9 @@ def _normalize_rhkb(raw: RawIssue) -> NormalizedIssue:
         components=components,
         labels=labels,
         affected_versions=affected_versions,
-        created_at=_safe_str(data.get("publishedDate", "")),
+        created_at=_safe_str(
+            data.get("publishedDate", "") or data.get("createdDate", "")
+        ),
         updated_at=_safe_str(data.get("lastModifiedDate", "")),
     )
 

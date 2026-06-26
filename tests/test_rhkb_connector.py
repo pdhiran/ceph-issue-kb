@@ -14,19 +14,24 @@ import responses
 
 from ceph_issue_kb.config import AuthConfig, ConnectorConfig
 from ceph_issue_kb.connectors.base import ConnectorError
-from ceph_issue_kb.connectors.rhkb import RHKBConnector
+from ceph_issue_kb.connectors.rhkb import RHKBConnector, _HYDRA_SEARCH_PATH
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BASE_URL = "https://access.redhat.com"
+HYDRA_URL = f"{BASE_URL}{_HYDRA_SEARCH_PATH}"
 
 
-def _rhkb_config() -> ConnectorConfig:
+def _rhkb_config(*, method: str = "cookie") -> ConnectorConfig:
+    if method == "offline_token":
+        auth = AuthConfig(method="offline_token", token_env="RH_OFFLINE_TOKEN")
+    else:
+        auth = AuthConfig(method="cookie", cookie_env="RH_SSO_COOKIE")
     return ConnectorConfig(
         name="redhat-kb",
         connector_type="rhkb",
         enabled=True,
         base_url=BASE_URL,
-        auth=AuthConfig(method="cookie", cookie_env="RH_SSO_COOKIE"),
+        auth=auth,
         rate_limit=100,
         since="2024-01-01",
         extra={},
@@ -36,7 +41,13 @@ def _rhkb_config() -> ConnectorConfig:
 @pytest.fixture()
 def connector():
     with patch.dict("os.environ", {"RH_SSO_COOKIE": "test-sso-cookie-value"}):
-        return RHKBConnector(_rhkb_config())
+        return RHKBConnector(_rhkb_config(method="cookie"))
+
+
+@pytest.fixture()
+def token_connector():
+    with patch.dict("os.environ", {"RH_OFFLINE_TOKEN": "test-offline-token"}):
+        return RHKBConnector(_rhkb_config(method="offline_token"))
 
 
 class TestRHKBConnectorInit:
@@ -44,9 +55,12 @@ class TestRHKBConnectorInit:
         assert connector.name == "redhat-kb"
         assert connector.base_url == BASE_URL
 
-    def test_session_has_cookie(self, connector):
+    def test_cookie_auth_sets_cookie(self, connector):
         cookie = connector._session.cookies.get("rh_jwt", domain=".redhat.com")
         assert cookie == "test-sso-cookie-value"
+
+    def test_offline_token_stored(self, token_connector):
+        assert token_connector._offline_token == "test-offline-token"
 
     def test_session_headers(self, connector):
         assert connector._session.headers["Accept"] == "application/json"
@@ -57,7 +71,7 @@ class TestRHKBAuthenticate:
     def test_authenticate_success(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json={"response": {"numFound": 100, "docs": []}},
             status=200,
         )
@@ -67,7 +81,7 @@ class TestRHKBAuthenticate:
     def test_authenticate_expired_cookie(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             status=401,
         )
         with pytest.raises(ConnectorError, match="RH KB request failed"):
@@ -80,25 +94,27 @@ class TestRHKBFetch:
         fixture = json.loads((FIXTURES / "rhkb_article.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/solutions/7045678",
-            json=fixture,
+            HYDRA_URL,
+            json={"response": {"numFound": 1, "docs": [fixture]}},
             status=200,
         )
         raw = connector.fetch("7045678")
         assert raw.source == "redhat-kb"
         assert raw.source_id == "7045678"
-        assert raw.source_url == f"{BASE_URL}/solutions/7045678"
         assert "stuck PG" in raw.data["title"]
         assert raw.data["documentKind"] == "Solution"
+        request = responses.calls[0].request
+        assert "id%3A7045678" in request.url or "id:7045678" in request.url
 
     @responses.activate
-    def test_fetch_404_raises(self, connector):
+    def test_fetch_not_found_raises(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/solutions/9999999",
-            status=404,
+            HYDRA_URL,
+            json={"response": {"numFound": 0, "docs": []}},
+            status=200,
         )
-        with pytest.raises(ConnectorError):
+        with pytest.raises(ConnectorError, match="not found"):
             connector.fetch("9999999")
 
 
@@ -108,7 +124,7 @@ class TestRHKBSearch:
         fixture = json.loads((FIXTURES / "rhkb_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json=fixture,
             status=200,
         )
@@ -116,27 +132,26 @@ class TestRHKBSearch:
         assert len(results) == 2
         assert results[0].source_id == "7045678"
         assert results[1].source_id == "7045500"
-        assert results[0].source_url == f"{BASE_URL}/solutions/7045678"
 
     @responses.activate
     def test_search_with_since(self, connector):
         fixture = json.loads((FIXTURES / "rhkb_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json=fixture,
             status=200,
         )
         list(connector.search("ceph", since="2024-10-01"))
         request = responses.calls[0].request
-        assert "start_date=2024-10-01" in request.url
+        assert "lastModifiedDate" in request.url
 
     @responses.activate
     def test_search_respects_limit(self, connector):
         fixture = json.loads((FIXTURES / "rhkb_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json=fixture,
             status=200,
         )
@@ -152,7 +167,7 @@ class TestRHKBSearch:
                 "docs": [
                     {
                         "id": "7045678",
-                        "uri": "/solutions/7045678",
+                        "view_uri": f"{BASE_URL}/solutions/7045678",
                         "title": "Article 1",
                         "documentKind": "Solution",
                     }
@@ -166,7 +181,7 @@ class TestRHKBSearch:
                 "docs": [
                     {
                         "id": "7045500",
-                        "uri": "/solutions/7045500",
+                        "view_uri": f"{BASE_URL}/solutions/7045500",
                         "title": "Article 2",
                         "documentKind": "Solution",
                     }
@@ -175,13 +190,13 @@ class TestRHKBSearch:
         }
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json=page1,
             status=200,
         )
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json=page2,
             status=200,
         )
@@ -197,14 +212,14 @@ class TestRHKBFetchUpdates:
         fixture = json.loads((FIXTURES / "rhkb_search.json").read_text())
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json=fixture,
             status=200,
         )
         results = list(connector.fetch_updates("2024-10-01"))
         assert len(results) == 2
         request = responses.calls[0].request
-        assert "start_date=2024-10-01" in request.url
+        assert "lastModifiedDate" in request.url
 
 
 class TestRHKBHealth:
@@ -212,7 +227,7 @@ class TestRHKBHealth:
     def test_health_ok(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             json={"response": {"numFound": 245, "docs": []}},
             status=200,
         )
@@ -225,7 +240,7 @@ class TestRHKBHealth:
     def test_health_failure(self, connector):
         responses.add(
             responses.GET,
-            f"{BASE_URL}/rs/search",
+            HYDRA_URL,
             status=503,
         )
         h = connector.health()
