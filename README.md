@@ -26,7 +26,13 @@ python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 - **Two-tier search**: BM25 keyword match (exact error messages) + fastembed semantic search (conceptual similarity)
 - **Per-source storage**: Each connector's issues stored separately for scalability
 
-## MCP Server
+## Connect Your Agent
+
+Choose the integration that matches your agent:
+
+---
+
+**Cursor** — add to `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -40,7 +46,69 @@ python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 }
 ```
 
-### Tools
+Restart Cursor. The MCP server starts automatically.
+
+---
+
+**Claude Desktop** — start the server, then add to `claude_desktop_config.json`:
+
+```bash
+python3 -m ceph_issue_kb.server.mcp_server --transport sse --port 8080
+```
+
+```json
+{
+  "mcpServers": {
+    "ceph-issue-kb": { "url": "http://localhost:8080/sse" }
+  }
+}
+```
+
+---
+
+**Continue / Cline / Windsurf** — start the server and point to the SSE endpoint:
+
+```bash
+python3 -m ceph_issue_kb.server.mcp_server --transport sse --port 8080
+```
+
+Connect to `http://localhost:8080/sse` in the tool's MCP settings.
+
+---
+
+**IBM watsonx / IBM Bob / LangChain / CrewAI / CI pipelines** — use the REST API (Phase 4):
+
+```bash
+python3 -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
+```
+
+```bash
+# Check if an error is known
+curl -X POST http://localhost:8200/api/is_known_issue \
+  -H "Content-Type: application/json" \
+  -d '{"error_message": "FAILED ceph_assert(googly > 0)", "version": "19.2.0"}'
+
+# Search issues
+curl -X POST http://localhost:8200/api/search_issues \
+  -H "Content-Type: application/json" \
+  -d '{"query": "OSD slow ops", "component": "rados"}'
+
+# Find workaround
+curl -X POST http://localhost:8200/api/find_workaround \
+  -H "Content-Type: application/json" \
+  -d '{"query": "too many PGs per OSD"}'
+
+# Health check
+curl http://localhost:8200/health
+```
+
+**Additional integration guides:**
+- [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md) — REST API reference, agent integration, deployment options
+- [examples/agent_integration.py](examples/agent_integration.py) — Ready-to-use Python client, LangChain/CrewAI tools
+
+> **VS Code Extension**: A VS Code extension for interactive issue search is planned for a future phase. See the [ceph-command-kb VS Code extension](https://github.com/pdhiran/ceph-command-kb/tree/main/vscode-extension) for the pattern.
+
+## MCP Tools
 
 | Tool | Description |
 |------|-------------|
@@ -63,12 +131,25 @@ python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 User: "We're seeing 'HEALTH_WARN too many PGs per OSD' after adding OSDs"
 
 Agent:
-1. search_health_warning("too many PGs per OSD")         ← Issue KB
-2. search_docs("PG autoscaler", component="rados")       ← Doc KB
-3. verify_config("mon_max_pg_per_osd")                   ← Command KB
-4. find_workaround("too many PGs per OSD")               ← Issue KB
+1. search_health_warning("too many PGs per OSD")         <- Issue KB
+2. search_docs("PG autoscaler", component="rados")       <- Doc KB
+3. verify_config("mon_max_pg_per_osd")                   <- Command KB
+4. find_workaround("too many PGs per OSD")               <- Issue KB
 5. Synthesizes: known issue, doc reference, config fix, prior workarounds
 ```
+
+## Agent Integration
+
+Python client for LLM agents (no external dependencies):
+
+```python
+from examples.agent_integration import CephIssueKBClient
+
+client = CephIssueKBClient("http://localhost:8200")
+result = client.is_known_issue("FAILED ceph_assert(googly > 0)")
+```
+
+LangChain and CrewAI wrappers included. See [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md).
 
 ## Connectors
 
@@ -85,6 +166,8 @@ Agent:
 |----------|-------------|
 | [SPEC.md](SPEC.md) | MCP platform contract and entity schema |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Architecture, source tree, maintainer guide |
+| [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md) | REST API reference, agent integration, deployment |
+| [examples/agent_integration.py](examples/agent_integration.py) | Python client, LangChain/CrewAI tools |
 
 ## Development
 

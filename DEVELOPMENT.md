@@ -23,9 +23,13 @@ The system has two distinct phases:
 │                                                          │
 │  Query → BM25 Search → Semantic Search → Similarity      │
 │                                                          │
-│  MCP Server (stdio) / REST API (HTTP)                    │
+│  MCP Server (stdio/SSE) / REST API (HTTP)                │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Indexing mode** runs offline — fetches issues from all configured connectors, extracts signals, normalizes, and builds search indices. Requires network access to issue trackers.
+
+**Server mode** runs anywhere — loads pre-built indices from `knowledge/`. No issue tracker access required.
 
 ## Source Tree
 
@@ -87,12 +91,45 @@ ceph-issue-kb/
 │       ├── relationships.json
 │       └── metadata.json
 │
+├── examples/                   # Integration examples
+│   └── agent_integration.py    # Python client, LangChain/CrewAI tools
+│
 ├── SPEC.md                     # MCP contract documentation
 ├── DEVELOPMENT.md              # This file
 ├── README.md                   # Quick start and overview
+├── BOB_INTEGRATION_GUIDE.md    # Agent integration guide
 └── .cursor/rules/              # Cursor AI rules
     └── issue-lookup.mdc
 ```
+
+## Knowledge Base On-Disk Layout
+
+```
+knowledge/issues-{date_range}/
+├── metadata.json               # IndexMetadata: date range, connector stats, model info
+├── merged_bm25_index.json      # Cross-source BM25 index for keyword search
+├── relationships.json          # Cross-source issue relationships (duplicates, related)
+├── ceph-tracker/
+│   ├── issues.json             # [{entity_id, title, description, signals, ...}]
+│   └── faiss.index             # FAISS IndexFlatIP (cosine on L2-normalized vectors)
+├── ibm-jira/
+│   ├── issues.json
+│   └── faiss.index
+├── redhat-bugzilla/
+│   ├── issues.json
+│   └── faiss.index
+└── redhat-kb/
+    ├── issues.json
+    └── faiss.index
+```
+
+Each connector's issues are stored in their own subdirectory. This allows:
+- Independent indexing and updating per source
+- Source-specific search scoping
+- Incremental updates without reindexing all sources
+- Clear provenance for every issue
+
+The `merged_bm25_index.json` spans all sources for cross-source keyword search. The `relationships.json` tracks cross-source links (e.g., a Ceph Tracker issue linked to a JIRA ticket).
 
 ## Connector Framework
 
@@ -145,6 +182,8 @@ connectors:
       key_env: MY_SOURCE_API_KEY
 ```
 
+No core code changes required.
+
 ## Signal Extraction
 
 The `SignalExtractor` uses regex patterns optimized for Ceph-specific text:
@@ -178,6 +217,59 @@ connectors.yaml          Environment Variables
 
 Supported methods: `none`, `api_token`, `api_key`, `cookie`
 
+## REST API Endpoints (Phase 4)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/search_issues` | POST | Search issues across all sources |
+| `/api/find_similar_issue` | POST | Find issues similar to a description |
+| `/api/is_known_issue` | POST | Check if an error matches a known issue |
+| `/api/find_workaround` | POST | Find known workarounds |
+| `/api/find_fix` | POST | Find fixes, commits, PRs |
+| `/api/find_related_issues` | POST | Get related/duplicate/linked issues |
+| `/api/search_stacktrace` | POST | Find issues with similar stacktraces |
+| `/api/search_health_warning` | POST | Find issues for a health warning |
+| `/api/hot_issues` | POST | Most active recent issues |
+| `/api/component_health` | POST | Open criticals, regressions, blockers |
+| `/health` | GET | Server health + connector status |
+| `/capabilities` | GET | Server capabilities and entity types |
+
+Start the server:
+```bash
+python3 -m ceph_issue_kb.server.rest_api
+# Binds to 127.0.0.1:8200 (configurable)
+```
+
+## Running as a Persistent Service
+
+### systemd
+
+```ini
+[Unit]
+Description=Ceph Issue KB REST API
+After=network.target
+
+[Service]
+Type=simple
+User=ceph-kb
+WorkingDirectory=/opt/ceph-issue-kb
+ExecStart=/opt/ceph-issue-kb/.venv/bin/python3 -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Docker
+
+```bash
+docker run -d -p 8200:8200 \
+  -e JIRA_USERNAME=... -e JIRA_API_TOKEN=... \
+  -v /path/to/knowledge:/app/knowledge \
+  ceph-issue-kb
+```
+
 ## Running Tests
 
 ```bash
@@ -190,6 +282,16 @@ Current test coverage:
 - `test_connectors.py` — 11 tests (AuthProvider, factory, RedmineConnector with mocked HTTP)
 - `test_models.py` — 7 tests (entity_id, NormalizedIssue, RawIssue, Comment, Relationship)
 - `test_signal_extractor.py` — 21 tests (all signal types + edge cases)
+
+## Key Design Decisions
+
+1. **Per-source storage** — each connector's issues stored in separate directories. Enables independent indexing, source-scoped search, and clear provenance.
+2. **Connector-normalizer separation** — connectors return raw data; normalization is a separate pipeline stage. Allows re-normalization without re-fetching.
+3. **Signal extraction at index time** — stacktraces, assertions, health warnings extracted during normalization, not at query time. Enables signal-specific search indices.
+4. **Two-tier search** — BM25 for exact error message matches (the most common triage pattern), semantic for conceptual similarity. BM25 alone misses paraphrased issues; semantic alone misses exact error strings.
+5. **16-char hex entity IDs** — `sha256(source:source_id)[:16]`. Stable, reproducible, cross-source safe. Collision probability is negligible at this scale.
+6. **Iterator-based pagination** — connectors handle pagination internally. Callers never deal with page tokens or offsets.
+7. **Auth from environment variables** — credentials referenced by env var name in config, never stored in code or YAML values.
 
 ## Dependencies
 
@@ -212,3 +314,32 @@ Current test coverage:
 | 3 | Normalizer + signal extractor integration + search engine (BM25 + fastembed) | Planned |
 | 4 | Similarity engine (V1) + MCP server + REST API | Planned |
 | 5 | Tests + README + pre-built index + Cursor rule | Planned |
+
+## Maintainer Guide
+
+### Rebuilding the Issue Index
+
+```bash
+# Full rebuild from all sources
+python3 index_issues.py --config connectors.yaml --verbose
+
+# Single source only
+python3 index_issues.py --connector ceph-tracker --verbose
+
+# Incremental update (issues since a date)
+python3 index_issues.py --config connectors.yaml --since 2025-01-01 --verbose
+```
+
+### Adding a New Ceph Version Range
+
+1. Update `connectors.yaml` with the target date range
+2. Run `index_issues.py` with `--since` to fetch new issues
+3. The new index is stored alongside existing ones in `knowledge/`
+4. The server auto-selects the latest index
+
+### Updating Connectors
+
+When an issue tracker changes its API:
+1. Update the connector class in `src/ceph_issue_kb/connectors/`
+2. Run tests: `pytest tests/test_connectors.py -v`
+3. Re-fetch affected issues: `python3 index_issues.py --connector <name> --verbose`
