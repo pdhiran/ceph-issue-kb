@@ -64,7 +64,30 @@ Connect to `http://localhost:8080/sse` in the tool's MCP settings.
 
 ---
 
-**REST API** — for watsonx, Bob, LangChain, CrewAI, or CI pipelines:
+**IBM Bob** — Bob supports MCP over SSE natively:
+
+```bash
+python -m ceph_issue_kb.server.mcp_server --transport sse --host 0.0.0.0 --port 8083
+```
+
+Add to Bob's `.bob/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ceph-issue-kb": {
+      "url": "http://localhost:8083/sse",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+If running on a shared server, replace `localhost` with the hostname.
+
+---
+
+**REST API** — for LangChain, CrewAI, or CI pipelines:
 
 ```bash
 python -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
