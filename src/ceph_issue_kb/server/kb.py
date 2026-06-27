@@ -8,7 +8,6 @@ lives in one place.
 from __future__ import annotations
 
 import re
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +68,8 @@ def _issue_summary(issue: NormalizedIssue) -> dict[str, Any]:
 class KnowledgeBase:
     """High-level API consumed by MCP and REST servers."""
 
+    _MAX_LIMIT = 200
+
     def __init__(
         self,
         search_engine: SearchEngine,
@@ -116,6 +117,7 @@ class KnowledgeBase:
         status: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        limit = max(1, min(int(limit), self._MAX_LIMIT))
         results = self._search.search(
             query, source=source, component=component, status=status, limit=limit * 2,
         )
@@ -237,14 +239,18 @@ class KnowledgeBase:
         results = self._search.search(stacktrace, limit=20)
 
         from ceph_issue_kb.search.similarity import _jaccard
+        from ceph_issue_kb.models import SearchResult
 
+        seen_ids = {r.issue.entity_id for r in results}
         for issue in self._search.issues.values():
-            if any(r.issue.entity_id == issue.entity_id for r in results):
+            if len(results) >= 50:
+                break
+            if issue.entity_id in seen_ids:
                 continue
             for st in issue.stacktraces:
                 if fingerprint(st) == fp or _jaccard(stacktrace, st) > 0.3:
-                    from ceph_issue_kb.models import SearchResult
                     results.append(SearchResult(issue=issue, score=1.0, search_source="stacktrace"))
+                    seen_ids.add(issue.entity_id)
                     break
 
         items = [
@@ -256,12 +262,19 @@ class KnowledgeBase:
     def search_health_warning(self, warning: str) -> dict[str, Any]:
         results = self._search.search(warning, limit=20)
 
+        from ceph_issue_kb.models import SearchResult
+
         warning_lower = warning.lower()
+        seen_ids = {r.issue.entity_id for r in results}
         for issue in self._search.issues.values():
+            if len(results) >= 50:
+                break
+            if issue.entity_id in seen_ids:
+                continue
             hw_match = any(warning_lower in hw.lower() for hw in issue.health_warnings)
-            if hw_match and not any(r.issue.entity_id == issue.entity_id for r in results):
-                from ceph_issue_kb.models import SearchResult
+            if hw_match:
                 results.append(SearchResult(issue=issue, score=0.9, search_source="health_warning"))
+                seen_ids.add(issue.entity_id)
 
         items = [
             {**_issue_summary(r.issue), "score": round(r.score, 4)}
@@ -276,6 +289,7 @@ class KnowledgeBase:
         component: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        limit = max(1, min(int(limit), self._MAX_LIMIT))
         issues = list(self._search.issues.values())
         if component:
             comp_lower = component.lower()
@@ -352,7 +366,7 @@ class KnowledgeBase:
         return [
             r for r in results
             if any(version_lower in v.lower() for v in r.issue.affected_versions)
-            or version_lower in r.issue.release.lower()
+            or version_lower in (r.issue.release or "").lower()
         ]
 
     def _resolve_issue_or_search(self, query: str) -> NormalizedIssue | None:

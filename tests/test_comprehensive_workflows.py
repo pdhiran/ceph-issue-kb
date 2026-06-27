@@ -732,7 +732,7 @@ class TestWorkflowE_MCPServer:
         kb = _build_kb()
         mcp = create_mcp_server(kb)
         assert mcp is not None
-        assert mcp.name == "ceph-issue-kb"
+        assert mcp.name == "Ceph Issue Intelligence KB"
 
     def test_all_tools_registered(self):
         from ceph_issue_kb.server.mcp_server import create_mcp_server

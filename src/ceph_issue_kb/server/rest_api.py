@@ -30,8 +30,20 @@ from ceph_issue_kb.server.kb import KnowledgeBase
 logger = logging.getLogger(__name__)
 
 
+_MAX_LIMIT = 200
+
+
 def _error_response(message: str, status_code: int = 400) -> JSONResponse:
     return JSONResponse({"error": message, "status": "error"}, status_code=status_code)
+
+
+def _clamp_limit(value: Any, default: int = 10) -> int:
+    """Coerce *value* to an int clamped between 1 and _MAX_LIMIT."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, _MAX_LIMIT))
 
 
 async def _parse_json(request: Request) -> dict | None:
@@ -58,7 +70,7 @@ def create_app(kb: KnowledgeBase) -> Starlette:
             component=body.get("component"),
             version=body.get("version"),
             status=body.get("status"),
-            limit=body.get("limit", 10),
+            limit=_clamp_limit(body.get("limit", 10)),
         ))
 
     async def post_find_similar(request: Request) -> JSONResponse:
@@ -132,7 +144,7 @@ def create_app(kb: KnowledgeBase) -> Starlette:
 
     async def get_hot_issues(request: Request) -> JSONResponse:
         component = request.query_params.get("component")
-        limit = int(request.query_params.get("limit", "10"))
+        limit = _clamp_limit(request.query_params.get("limit", "10"))
         return JSONResponse(kb.hot_issues(component=component, limit=limit))
 
     async def get_component_health(request: Request) -> JSONResponse:

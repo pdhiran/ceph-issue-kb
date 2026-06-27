@@ -431,6 +431,25 @@ def _issue_to_dict(issue: NormalizedIssue) -> dict[str, Any]:
 def _dict_to_issue(d: dict[str, Any]) -> NormalizedIssue:
     from ceph_issue_kb.models import Comment, Relationship
 
-    comments = [Comment(**c) for c in d.pop("comments", [])]
-    relationships = [Relationship(**r) for r in d.pop("relationships", [])]
-    return NormalizedIssue(**d, comments=comments, relationships=relationships)
+    d = dict(d)  # avoid mutating caller's dict
+    comments = [Comment(**c) for c in (d.pop("comments", None) or [])]
+    relationships = [Relationship(**r) for r in (d.pop("relationships", None) or [])]
+
+    # Strip keys not recognised by NormalizedIssue to tolerate future schema fields.
+    import dataclasses
+    valid_fields = {f.name for f in dataclasses.fields(NormalizedIssue)}
+    valid_fields -= {"comments", "relationships"}
+    filtered = {k: v for k, v in d.items() if k in valid_fields}
+
+    # Coerce None -> default for list fields to prevent iteration crashes.
+    _list_fields = {
+        "components", "labels", "affected_versions", "fixed_versions",
+        "stacktraces", "assertions", "health_warnings",
+        "commands_mentioned", "configs_mentioned", "log_snippets",
+        "keywords",
+    }
+    for fld in _list_fields:
+        if fld in filtered and filtered[fld] is None:
+            filtered[fld] = []
+
+    return NormalizedIssue(**filtered, comments=comments, relationships=relationships)
