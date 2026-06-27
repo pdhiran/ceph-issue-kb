@@ -55,6 +55,9 @@ class RedmineConnector(BaseConnector):
         self._min_interval = max(1.0 / max(config.rate_limit, 1), 0.5)
         self._last_request = 0.0
 
+    def close(self) -> None:
+        self._session.close()
+
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_request
         if elapsed < self._min_interval:

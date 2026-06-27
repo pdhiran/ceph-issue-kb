@@ -41,6 +41,9 @@ class JiraConnector(BaseConnector):
         self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
 
+    def close(self) -> None:
+        self._session.close()
+
     @property
     def _api_prefix(self) -> str:
         return f"/rest/api/{self.api_version}"

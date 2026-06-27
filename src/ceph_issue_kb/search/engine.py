@@ -361,8 +361,8 @@ class SearchEngine:
                 "Dropped %d duplicate entity_ids during load (%d -> %d unique)",
                 dedup_dropped, len(all_issues), len(engine._issues),
             )
-        if all_issues:
-            engine._build_bm25(all_issues)
+        if engine._issues:
+            engine._build_bm25(list(engine._issues.values()))
 
         # Load and merge FAISS indices from all source directories.
         engine._load_faiss_indices(source_dirs)

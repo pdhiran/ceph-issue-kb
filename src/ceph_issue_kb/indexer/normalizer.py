@@ -383,6 +383,26 @@ _SOURCE_NORMALIZERS["bugzilla"] = _normalize_bugzilla
 _SOURCE_NORMALIZERS["redhat-bugzilla"] = _normalize_bugzilla
 
 
+_CEPH_COMPONENTS = frozenset({
+    "osd",
+    "mon",
+    "mds",
+    "mgr",
+    "rgw",
+    "rbd",
+    "rados",
+    "cephfs",
+    "bluestore",
+    "cephadm",
+    "dashboard",
+    "nfs",
+    "pg",
+    "crush",
+    "multisite",
+    "recovery",
+})
+
+
 # ---------------------------------------------------------------------------
 # Red Hat Knowledge Base
 # ---------------------------------------------------------------------------
@@ -395,6 +415,8 @@ def _normalize_rhkb(raw: RawIssue) -> NormalizedIssue:
     title = _safe_str(data.get("title", ""))
     abstract = _safe_str(data.get("abstract", ""))
 
+    # The Hydra fl= parameter in rhkb.py does not include "body", so this
+    # typically returns "" and description falls through to hydra_text below.
     body_html = _safe_str(data.get("body", ""))
     body_text = _strip_html(body_html)
 
@@ -443,22 +465,3 @@ def _normalize_rhkb(raw: RawIssue) -> NormalizedIssue:
 
 _SOURCE_NORMALIZERS["rhkb"] = _normalize_rhkb
 _SOURCE_NORMALIZERS["redhat-kb"] = _normalize_rhkb
-
-_CEPH_COMPONENTS = frozenset({
-    "osd",
-    "mon",
-    "mds",
-    "mgr",
-    "rgw",
-    "rbd",
-    "rados",
-    "cephfs",
-    "bluestore",
-    "cephadm",
-    "dashboard",
-    "nfs",
-    "pg",
-    "crush",
-    "multisite",
-    "recovery",
-})

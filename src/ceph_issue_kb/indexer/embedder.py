@@ -88,8 +88,9 @@ class Embedder:
                 "Install with: pip install 'ceph-issue-kb[search]'"
             ) from exc
         dim = vectors.shape[1]
-        faiss.normalize_L2(vectors)
+        vecs = vectors.copy()
+        faiss.normalize_L2(vecs)
         index = faiss.IndexFlatIP(dim)
-        index.add(vectors)
+        index.add(vecs)
         logger.info("Built FAISS index: %d vectors, %d dims", index.ntotal, dim)
         return index

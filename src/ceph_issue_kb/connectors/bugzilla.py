@@ -39,6 +39,9 @@ class BugzillaConnector(BaseConnector):
         self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
 
+    def close(self) -> None:
+        self._session.close()
+
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_request
         if elapsed < self._min_interval:
@@ -154,7 +157,7 @@ class BugzillaConnector(BaseConnector):
             if not bugs:
                 break
 
-            bug_ids = [str(bug.get("id", "")) for bug in bugs]
+            bug_ids = [str(bug["id"]) for bug in bugs if bug.get("id")]
             comments_path = f"/rest/bug/{','.join(bug_ids)}/comment"
             comments_data = self._get(comments_path)
             all_comments = comments_data.get("bugs", {})

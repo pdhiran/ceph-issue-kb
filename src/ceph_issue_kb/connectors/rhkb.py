@@ -70,6 +70,9 @@ class RHKBConnector(BaseConnector):
         self._min_interval = 1.0 / max(config.rate_limit, 1)
         self._last_request = 0.0
 
+    def close(self) -> None:
+        self._session.close()
+
     def _ensure_bearer_token(self) -> None:
         """Exchange the offline token for a short-lived bearer token via SSO."""
         if self._offline_token is None:

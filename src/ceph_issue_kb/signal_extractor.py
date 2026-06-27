@@ -28,7 +28,9 @@ _STACKTRACE_PATTERNS = [
 ]
 
 _ASSERTION_PATTERN = re.compile(
-    r"^.*(?:assert|FAILED|abort|ABORT|ceph_abort|ceph_assert_fail|__ceph_assert_fail).*$",
+    r"^.*(?:ceph_assert(?:_fail)?|__ceph_assert_fail|ceph_abort"
+    r"|FAILED\s+assert(?:ion)?"
+    r"|assert\s*\(|ASSERT_?(?:EQ|NE|TRUE|FALSE|GT|LT|GE|LE)\s*\().*$",
     re.MULTILINE,
 )
 

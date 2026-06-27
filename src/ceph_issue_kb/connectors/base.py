@@ -32,6 +32,15 @@ class BaseConnector(ABC):
         self.rate_limit = config.rate_limit
         self._credentials: Credentials = AuthProvider().resolve(config.auth)
 
+    def close(self) -> None:
+        """Close any resources held by this connector."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
     @abstractmethod
     def authenticate(self) -> None:
         """Validate that credentials work (e.g. test API call).

@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -172,7 +174,11 @@ def create_app(kb: KnowledgeBase) -> Starlette:
         Route("/capabilities", get_capabilities, methods=["GET"]),
     ]
 
-    return Starlette(routes=routes)
+    middleware = [
+        Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]),
+    ]
+
+    return Starlette(routes=routes, middleware=middleware)
 
 
 def main(argv: list[str] | None = None) -> None:

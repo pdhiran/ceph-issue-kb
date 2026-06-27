@@ -8,12 +8,24 @@ lives in one place.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ceph_issue_kb.models import KNOWLEDGE_BASE, SCHEMA_VERSION, NormalizedIssue
 from ceph_issue_kb.search.engine import SearchEngine
 from ceph_issue_kb.search.similarity import SimilarityEngine, fingerprint
+
+
+@dataclass(frozen=True)
+class _KBState:
+    """Immutable snapshot of search + similarity engines.
+
+    A single assignment of ``self._state`` is GIL-atomic, so concurrent
+    readers always see a consistent pair of engines.
+    """
+    search: SearchEngine
+    similarity: SimilarityEngine
 
 # ---------------------------------------------------------------------------
 # Comment-scanning patterns
@@ -76,8 +88,10 @@ class KnowledgeBase:
         similarity_engine: SimilarityEngine | None = None,
         kb_path: Path | None = None,
     ) -> None:
-        self._search = search_engine
-        self._similarity = similarity_engine or SimilarityEngine(search_engine)
+        self._state = _KBState(
+            search=search_engine,
+            similarity=similarity_engine or SimilarityEngine(search_engine),
+        )
         self._kb_path = kb_path
 
     @classmethod
@@ -96,14 +110,14 @@ class KnowledgeBase:
     def reload(self, kb_path: str | Path) -> None:
         """Hot-reload the knowledge base from *kb_path*.
 
-        Attribute assignments are GIL-atomic, so concurrent readers see
-        either the old or the new engine — never a half-swapped state.
+        Both engines are wrapped in a frozen ``_KBState`` so the swap is
+        a single GIL-atomic assignment — concurrent readers always see a
+        consistent pair.
         """
         path = Path(kb_path)
         engine = SearchEngine.load(path)
         sim = SimilarityEngine(engine)
-        self._search = engine
-        self._similarity = sim
+        self._state = _KBState(search=engine, similarity=sim)
         self._kb_path = path
 
     # -- Search ---------------------------------------------------------------
@@ -117,8 +131,11 @@ class KnowledgeBase:
         status: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        if not query.strip():
+            return {"results": [], "total": 0, "query": query, "message": "Empty query"}
         limit = max(1, min(int(limit), self._MAX_LIMIT))
-        results = self._search.search(
+        state = self._state
+        results = state.search.search(
             query, source=source, component=component, status=status, limit=limit * 2,
         )
 
@@ -139,7 +156,8 @@ class KnowledgeBase:
         stacktrace: str | None = None,
         component: str | None = None,
     ) -> dict[str, Any]:
-        sim_results = self._similarity.find_similar(
+        state = self._state
+        sim_results = state.similarity.find_similar(
             description, stacktrace=stacktrace, component=component, limit=10,
         )
         items = [
@@ -159,7 +177,8 @@ class KnowledgeBase:
         error_message: str,
         version: str | None = None,
     ) -> dict[str, Any]:
-        results = self._search.search(error_message, limit=20)
+        state = self._state
+        results = state.search.search(error_message, limit=20)
         if version:
             results = self._filter_version(results, version)
 
@@ -209,13 +228,14 @@ class KnowledgeBase:
     # -- Relationship queries -------------------------------------------------
 
     def find_related_issues(self, issue_id: str) -> dict[str, Any]:
-        issue = self._search.get_issue(issue_id)
+        state = self._state
+        issue = state.search.get_issue(issue_id)
         if issue is None:
             return _error_dict(f"Issue not found: {issue_id}")
 
         related = []
         for rel in issue.relationships:
-            target = self._search.get_issue(rel.target_id)
+            target = state.search.get_issue(rel.target_id)
             entry: dict[str, Any] = {
                 "relation_type": rel.relation_type,
                 "target_id": rel.target_id,
@@ -235,14 +255,16 @@ class KnowledgeBase:
     # -- Specialised searches -------------------------------------------------
 
     def search_stacktrace(self, stacktrace: str) -> dict[str, Any]:
+        state = self._state
         fp = fingerprint(stacktrace)
-        results = self._search.search(stacktrace, limit=20)
+        results = state.search.search(stacktrace, limit=20)
 
         from ceph_issue_kb.search.similarity import _jaccard
         from ceph_issue_kb.models import SearchResult
 
+        # TODO: O(n) full scan could be replaced with an inverted index built at load time
         seen_ids = {r.issue.entity_id for r in results}
-        for issue in self._search.issues.values():
+        for issue in state.search.issues.values():
             if len(results) >= 50:
                 break
             if issue.entity_id in seen_ids:
@@ -260,13 +282,15 @@ class KnowledgeBase:
         return {"results": items, "total": len(items), "fingerprint": fp}
 
     def search_health_warning(self, warning: str) -> dict[str, Any]:
-        results = self._search.search(warning, limit=20)
+        state = self._state
+        results = state.search.search(warning, limit=20)
 
         from ceph_issue_kb.models import SearchResult
 
+        # TODO: O(n) full scan could be replaced with an inverted index built at load time
         warning_lower = warning.lower()
         seen_ids = {r.issue.entity_id for r in results}
-        for issue in self._search.issues.values():
+        for issue in state.search.issues.values():
             if len(results) >= 50:
                 break
             if issue.entity_id in seen_ids:
@@ -290,7 +314,8 @@ class KnowledgeBase:
         limit: int = 10,
     ) -> dict[str, Any]:
         limit = max(1, min(int(limit), self._MAX_LIMIT))
-        issues = list(self._search.issues.values())
+        state = self._state
+        issues = list(state.search.issues.values())
         if component:
             comp_lower = component.lower()
             issues = [i for i in issues if comp_lower in [c.lower() for c in i.components]]
@@ -301,9 +326,10 @@ class KnowledgeBase:
         return {"results": items, "total": len(items)}
 
     def component_health(self, component: str) -> dict[str, Any]:
+        state = self._state
         comp_lower = component.lower()
         issues = [
-            i for i in self._search.issues.values()
+            i for i in state.search.issues.values()
             if comp_lower in [c.lower() for c in i.components]
         ]
 
@@ -324,7 +350,8 @@ class KnowledgeBase:
     # -- Contract tools -------------------------------------------------------
 
     def capabilities(self) -> dict[str, Any]:
-        sources = sorted({issue.source for issue in self._search.issues.values()})
+        state = self._state
+        sources = sorted({issue.source for issue in state.search.issues.values()})
         return {
             "name": KNOWLEDGE_BASE,
             "schema_version": SCHEMA_VERSION,
@@ -342,11 +369,12 @@ class KnowledgeBase:
                 "component_health",
             ],
             "sources": sources,
-            "entity_counts": {"issues": len(self._search.issues)},
+            "entity_counts": {"issues": len(state.search.issues)},
         }
 
     def health(self) -> dict[str, Any]:
-        issue_count = len(self._search.issues)
+        state = self._state
+        issue_count = len(state.search.issues)
         index_ok = issue_count > 0
         status = "ok" if index_ok else "degraded"
 
@@ -371,9 +399,10 @@ class KnowledgeBase:
 
     def _resolve_issue_or_search(self, query: str) -> NormalizedIssue | None:
         """If *query* looks like an entity ID, look it up; otherwise search."""
+        state = self._state
         if re.fullmatch(r"[0-9a-f]{16}", query):
-            return self._search.get_issue(query)
-        results = self._search.search(query, limit=1)
+            return state.search.get_issue(query)
+        results = state.search.search(query, limit=1)
         return results[0].issue if results else None
 
     @staticmethod

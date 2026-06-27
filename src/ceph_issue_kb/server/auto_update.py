@@ -52,15 +52,30 @@ def _has_remote(repo_dir: Path) -> bool:
         return False
 
 
+def _detect_default_branch(repo_dir: Path) -> str:
+    """Detect the default branch from the remote HEAD, falling back to 'main'."""
+    try:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            capture_output=True, text=True, cwd=str(repo_dir), timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip().replace("origin/", "")
+    except Exception:
+        pass
+    return "main"
+
+
 def _git_pull(repo_dir: Path) -> tuple[bool, str]:
     """Run ``git pull --ff-only`` and return *(changed, message)*.
 
     *changed* is False when the repo is already up-to-date **or** the
     pull failed (the message explains why).
     """
+    branch = _detect_default_branch(repo_dir)
     try:
         result = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", "main"],
+            ["git", "pull", "--ff-only", "origin", branch],
             cwd=repo_dir,
             capture_output=True,
             text=True,
@@ -82,7 +97,7 @@ def _git_pull(repo_dir: Path) -> tuple[bool, str]:
 def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
     """Perform the update — called in the background thread."""
     try:
-        count_before = len(kb._search.issues)
+        count_before = len(kb._state.search.issues)
 
         changed, message = _git_pull(repo_root)
         if not changed:
@@ -93,7 +108,7 @@ def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
             return
 
         kb.reload(kb_path)
-        count_after = len(kb._search.issues)
+        count_after = len(kb._state.search.issues)
         logger.info(
             "Knowledge base updated: %d -> %d issues",
             count_before,
@@ -134,6 +149,10 @@ def start_auto_update(
         periodic checks (startup pull still runs).
     """
     global _periodic_stop  # noqa: PLW0603
+
+    if _periodic_stop is not None and not _periodic_stop.is_set():
+        logger.warning("Auto-update already running; skipping duplicate start")
+        return
 
     if kb_path is None:
         logger.debug("Auto-update skipped: no KB path")

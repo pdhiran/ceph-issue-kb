@@ -90,7 +90,7 @@ def build_index(
 
     _write_per_source(per_source, output, full_rebuild=full_rebuild)
 
-    all_issues = _load_all_issues(per_source.keys(), output)
+    all_issues = _load_all_issues(output)
 
     _build_and_write_bm25(all_issues, output)
 
@@ -112,6 +112,7 @@ def _write_per_source(
     Unless *full_rebuild* is True, existing issues are preserved and new
     issues are upserted by ``entity_id``.
     """
+    # TODO: _issue_to_dict is a private function; promote to a public API in search.engine
     from ceph_issue_kb.search.engine import _issue_to_dict
 
     for source_name, new_issues in per_source.items():
@@ -138,16 +139,14 @@ def _write_per_source(
         )
 
 
-def _load_all_issues(
-    source_names: Iterable[str], output: Path
-) -> list[NormalizedIssue]:
-    """Reload all merged issues from disk for the given sources."""
+def _load_all_issues(output: Path) -> list[NormalizedIssue]:
+    """Reload all merged issues from disk across ALL source subdirectories."""
     from ceph_issue_kb.search.engine import _dict_to_issue
 
     all_issues: list[NormalizedIssue] = []
-    for source_name in source_names:
-        source_file = output / source_name / "issues.json"
-        if source_file.exists():
+    for subdir in sorted(output.iterdir()):
+        source_file = subdir / "issues.json"
+        if subdir.is_dir() and source_file.exists():
             data = json.loads(source_file.read_text())
             all_issues.extend(_dict_to_issue(d) for d in data)
     return all_issues
