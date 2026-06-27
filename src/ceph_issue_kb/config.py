@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -77,8 +80,10 @@ def load_config(path: str | Path) -> Config:
         raise ValueError(f"Invalid config: empty or non-mapping YAML in {p}")
     if "connectors" not in raw or not isinstance(raw.get("connectors"), dict):
         raise ValueError(f"Invalid config: missing 'connectors' key in {p}")
-    connectors = {
-        name: ConnectorConfig.from_dict(name, data)
-        for name, data in raw["connectors"].items()
-    }
+    connectors: dict[str, ConnectorConfig] = {}
+    for name, data in raw["connectors"].items():
+        if not data:
+            logger.warning("Skipping connector %r with empty configuration", name)
+            continue
+        connectors[name] = ConnectorConfig.from_dict(name, data)
     return Config(connectors=connectors)

@@ -114,7 +114,7 @@ class TestGitPull:
 class TestDoUpdate:
     def _mock_kb(self, issue_count=5):
         kb = MagicMock()
-        kb._search.issues = {str(i): MagicMock() for i in range(issue_count)}
+        kb._state.search.issues = {str(i): MagicMock() for i in range(issue_count)}
         return kb
 
     def test_no_change(self, tmp_path):
@@ -150,7 +150,7 @@ class TestDoUpdate:
 class TestPeriodicLoop:
     def test_fires_update_then_stops(self, tmp_path):
         kb = MagicMock()
-        kb._search.issues = {}
+        kb._state.search.issues = {}
         stop = threading.Event()
         call_count = 0
 
@@ -168,7 +168,7 @@ class TestPeriodicLoop:
     def test_immediate_stop(self, tmp_path):
         """Stop event already set — loop body never runs."""
         kb = MagicMock()
-        kb._search.issues = {}
+        kb._state.search.issues = {}
         stop = threading.Event()
         stop.set()
 
@@ -199,7 +199,7 @@ class TestStartAutoUpdate:
     def test_starts_startup_thread(self, tmp_path):
         (tmp_path / ".git").mkdir()
         kb = MagicMock()
-        kb._search.issues = {}
+        kb._state.search.issues = {}
         with (
             patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
             patch("ceph_issue_kb.server.auto_update._git_pull", return_value=(False, "Already up to date")),
@@ -210,7 +210,7 @@ class TestStartAutoUpdate:
     def test_starts_periodic_thread(self, tmp_path):
         (tmp_path / ".git").mkdir()
         kb = MagicMock()
-        kb._search.issues = {}
+        kb._state.search.issues = {}
         with (
             patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
             patch("ceph_issue_kb.server.auto_update._git_pull", return_value=(False, "Already up to date")),
@@ -240,7 +240,7 @@ class TestCLIUpdateInterval:
 
         with patch("ceph_issue_kb.server.mcp_server.KnowledgeBase") as mock_kb_cls:
             mock_kb_cls.empty.return_value = MagicMock()
-            mock_kb_cls.empty.return_value._search.issues = {}
+            mock_kb_cls.empty.return_value._state.search.issues = {}
             with (
                 patch("ceph_issue_kb.server.mcp_server._find_kb_path", return_value=None),
                 patch("ceph_issue_kb.server.auto_update.start_auto_update") as mock_start,
@@ -261,7 +261,7 @@ class TestCLIUpdateInterval:
             patch("ceph_issue_kb.server.mcp_server._find_kb_path", return_value=None),
         ):
             mock_kb_cls.empty.return_value = MagicMock()
-            mock_kb_cls.empty.return_value._search.issues = {}
+            mock_kb_cls.empty.return_value._state.search.issues = {}
             from ceph_issue_kb.server.rest_api import main as rest_main
 
             parser_args = ["--update-interval", "6", "--no-auto-update"]
