@@ -219,6 +219,7 @@ class RHKBConnector(BaseConnector):
         self, path: str, params: dict[str, Any], limit: int | None = None
     ) -> Iterator[RawIssue]:
         """Paginate through Hydra search results using offset-based pagination."""
+        params = dict(params)
         offset = 0
         yielded = 0
         while True:

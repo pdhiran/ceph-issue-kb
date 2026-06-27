@@ -144,6 +144,7 @@ class BugzillaConnector(BaseConnector):
         self, path: str, params: dict[str, Any], limit: int | None = None
     ) -> Iterator[RawIssue]:
         """Paginate through Bugzilla search results using offset/limit."""
+        params = dict(params)
         offset = 0
         yielded = 0
         while True:

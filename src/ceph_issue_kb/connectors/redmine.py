@@ -170,6 +170,7 @@ class RedmineConnector(BaseConnector):
         Yields RawIssue objects.  For each page, re-fetches the full issue
         (with journals + relations) so we get comments and links.
         """
+        params = dict(params)
         offset = 0
         yielded = 0
         while True:

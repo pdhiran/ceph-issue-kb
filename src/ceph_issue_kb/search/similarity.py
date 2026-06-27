@@ -89,7 +89,7 @@ class SimilarityEngine:
 
     def find_similar(
         self,
-        description: str,
+        description: str | None,
         stacktrace: str | None = None,
         component: str | None = None,
         limit: int = 10,
@@ -98,10 +98,12 @@ class SimilarityEngine:
 
         Returns up to *limit* results sorted by descending similarity score.
         """
+        description = description or ""
+        stacktrace = stacktrace or ""
         if not description and not stacktrace:
             return []
 
-        query_text = description or ""
+        query_text = description
         if stacktrace:
             query_text = f"{query_text} {stacktrace}".strip()
 
