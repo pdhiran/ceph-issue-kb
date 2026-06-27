@@ -22,3 +22,4 @@ htmlcov/
 # Only ignore temporary/partial index builds
 knowledge/**/tmp/
 *.onnx
+.last_index_update
