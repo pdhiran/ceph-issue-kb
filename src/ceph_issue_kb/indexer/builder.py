@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from ceph_issue_kb.config import Config
 from ceph_issue_kb.connectors import get_connector
@@ -27,23 +27,25 @@ def build_index(
     *,
     since: str | None = None,
     connectors_override: dict[str, BaseConnector] | None = None,
+    full_rebuild: bool = False,
 ) -> dict[str, Any]:
     """Run the full indexing pipeline.
 
     1. For each enabled connector, fetch issues (since *since* or config default).
     2. Normalize every RawIssue into NormalizedIssue.
-    3. Group by source, embed, build FAISS indices.
+    3. Merge new issues with existing on-disk data (unless *full_rebuild*).
     4. Build merged BM25 index across all sources.
-    5. Write everything to *output_dir*.
+    5. Embed per source, build FAISS indices.
+    6. Write everything to *output_dir*.
 
     *connectors_override* lets tests inject mock connectors.
+    *full_rebuild* skips merging and overwrites all data from scratch.
 
     Returns a metadata dict summarising the build.
     """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
 
-    all_issues: list[NormalizedIssue] = []
     per_source: dict[str, list[NormalizedIssue]] = {}
     stats: dict[str, Any] = {}
 
@@ -81,17 +83,18 @@ def build_index(
                 )
 
         per_source[name] = normalized
-        all_issues.extend(normalized)
         stats[name] = {"fetched": len(raw_issues), "normalized": len(normalized)}
         logger.info(
             "%s: fetched %d, normalized %d", name, len(raw_issues), len(normalized)
         )
 
-    _write_per_source(per_source, output)
+    _write_per_source(per_source, output, full_rebuild=full_rebuild)
+
+    all_issues = _load_all_issues(per_source.keys(), output)
 
     _build_and_write_bm25(all_issues, output)
 
-    _embed_per_source(per_source, output)
+    _embed_per_source_from_disk(per_source.keys(), output)
 
     metadata = _write_metadata(stats, all_issues, output)
 
@@ -99,25 +102,59 @@ def build_index(
 
 
 def _write_per_source(
-    per_source: dict[str, list[NormalizedIssue]], output: Path
+    per_source: dict[str, list[NormalizedIssue]],
+    output: Path,
+    *,
+    full_rebuild: bool = False,
 ) -> None:
-    """Write issues.json per source directory."""
+    """Write issues.json per source directory, merging with existing data.
+
+    Unless *full_rebuild* is True, existing issues are preserved and new
+    issues are upserted by ``entity_id``.
+    """
     from ceph_issue_kb.search.engine import _issue_to_dict
 
-    for source_name, issues in per_source.items():
+    for source_name, new_issues in per_source.items():
         source_dir = output / source_name
         source_dir.mkdir(parents=True, exist_ok=True)
 
-        issues_data = [_issue_to_dict(issue) for issue in issues]
-        (source_dir / "issues.json").write_text(
-            json.dumps(issues_data, indent=2, default=str)
+        existing_file = source_dir / "issues.json"
+        existing: dict[str, dict] = {}
+        if not full_rebuild and existing_file.exists():
+            data = json.loads(existing_file.read_text())
+            existing = {issue["entity_id"]: issue for issue in data}
+
+        for issue in new_issues:
+            d = _issue_to_dict(issue)
+            existing[d["entity_id"]] = d
+
+        merged = list(existing.values())
+        existing_file.write_text(json.dumps(merged, indent=2, default=str))
+        logger.info(
+            "Wrote %d issues to %s/issues.json (%d new/updated)",
+            len(merged),
+            source_name,
+            len(new_issues),
         )
-        logger.info("Wrote %d issues to %s/issues.json", len(issues), source_name)
+
+
+def _load_all_issues(
+    source_names: Iterable[str], output: Path
+) -> list[NormalizedIssue]:
+    """Reload all merged issues from disk for the given sources."""
+    from ceph_issue_kb.search.engine import _dict_to_issue
+
+    all_issues: list[NormalizedIssue] = []
+    for source_name in source_names:
+        source_file = output / source_name / "issues.json"
+        if source_file.exists():
+            data = json.loads(source_file.read_text())
+            all_issues.extend(_dict_to_issue(d) for d in data)
+    return all_issues
 
 
 def _build_and_write_bm25(issues: list[NormalizedIssue], output: Path) -> None:
     """Build a merged BM25 index metadata file."""
-    from ceph_issue_kb.search.engine import _bm25_doc_text, _tokenize
 
     bm25_data = {
         "doc_count": len(issues),
@@ -130,10 +167,12 @@ def _build_and_write_bm25(issues: list[NormalizedIssue], output: Path) -> None:
     logger.info("Wrote merged BM25 metadata for %d issues", len(issues))
 
 
-def _embed_per_source(
-    per_source: dict[str, list[NormalizedIssue]], output: Path
+def _embed_per_source_from_disk(
+    source_names: Iterable[str], output: Path
 ) -> None:
-    """Embed issues per source and write FAISS indices."""
+    """Embed the full merged issue set per source and write FAISS indices."""
+    from ceph_issue_kb.search.engine import _dict_to_issue
+
     try:
         from ceph_issue_kb.indexer.embedder import Embedder
     except ImportError:
@@ -141,11 +180,16 @@ def _embed_per_source(
         return
 
     embedder = Embedder()
-    for source_name, issues in per_source.items():
-        if not issues:
+    for source_name in source_names:
+        source_file = output / source_name / "issues.json"
+        if not source_file.exists():
             continue
+        data = json.loads(source_file.read_text())
+        if not data:
+            continue
+
+        issues = [_dict_to_issue(d) for d in data]
         source_dir = output / source_name
-        source_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             vectors, entity_ids = embedder.embed_issues(issues)

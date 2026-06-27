@@ -13,7 +13,51 @@ from ceph_issue_kb.config import AuthConfig, Config, ConnectorConfig
 from ceph_issue_kb.models import RawIssue
 
 
+from ceph_issue_kb.models import make_entity_id
+
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _make_issue_dict(source: str, source_id: str, title: str, **overrides) -> dict:
+    """Build a minimal issue dict compatible with _dict_to_issue."""
+    d = {
+        "entity_id": make_entity_id(source, source_id),
+        "source": source,
+        "source_id": source_id,
+        "source_url": f"https://example.com/{source}/{source_id}",
+        "title": title,
+        "summary": "",
+        "description": overrides.pop("description", ""),
+        "comments": [],
+        "status": "open",
+        "resolution": "",
+        "priority": "normal",
+        "severity": "",
+        "components": [],
+        "labels": [],
+        "affected_versions": [],
+        "fixed_versions": [],
+        "release": "",
+        "reporter": "",
+        "assignee": "",
+        "created_at": "2024-01-01",
+        "updated_at": "2024-01-01",
+        "resolved_at": None,
+        "stacktraces": [],
+        "assertions": [],
+        "health_warnings": [],
+        "commands_mentioned": [],
+        "configs_mentioned": [],
+        "log_snippets": [],
+        "relationships": [],
+        "keywords": [],
+        "entity_type": "issue",
+        "indexed_at": "2024-01-01T00:00:00+00:00",
+        "schema_version": "1.0",
+        "knowledge_base": "ceph-issue-kb",
+    }
+    d.update(overrides)
+    return d
 
 
 def _load(name: str) -> dict:
@@ -158,6 +202,125 @@ class TestBuildIndex:
             meta = json.loads(meta_path.read_text())
             assert "built_at" in meta
             assert "total_issues" in meta
+
+    def test_incremental_merge_preserves_existing_issues(self):
+        """Existing issues survive an incremental update that only fetches a subset."""
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        from ceph_issue_kb.indexer.builder import build_index
+
+        fixture = _load("redmine_issue.json")
+        issue_data = fixture["issue"]
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=str(issue_data["id"]),
+            source_url=f"https://tracker.ceph.com/issues/{issue_data['id']}",
+            data=issue_data,
+        )
+
+        config = _make_config("ceph-tracker")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / "ceph-tracker"
+            source_dir.mkdir(parents=True)
+            existing_issues = []
+            for i in range(1, 6):
+                existing_issues.append(_make_issue_dict(
+                    "ceph-tracker", str(i), f"Existing issue {i}",
+                    description=f"Description for issue {i}",
+                ))
+            (source_dir / "issues.json").write_text(json.dumps(existing_issues))
+
+            # Run incremental build that fetches 1 new issue
+            mock_connector = _make_mock_connector("ceph-tracker", [raw])
+            metadata = build_index(
+                config,
+                tmpdir,
+                since="2024-01-01",
+                connectors_override={"ceph-tracker": mock_connector},
+            )
+
+            issues_data = json.loads((source_dir / "issues.json").read_text())
+            assert len(issues_data) == 6  # 5 existing + 1 new, not just 1
+
+    def test_incremental_merge_updates_existing_issue(self):
+        """An issue re-fetched with new data replaces the old version."""
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        from ceph_issue_kb.indexer.builder import build_index
+
+        fixture = _load("redmine_issue.json")
+        issue_data = fixture["issue"]
+        issue_id = str(issue_data["id"])
+
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=issue_id,
+            source_url=f"https://tracker.ceph.com/issues/{issue_id}",
+            data=issue_data,
+        )
+
+        config = _make_config("ceph-tracker")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / "ceph-tracker"
+            source_dir.mkdir(parents=True)
+
+            old_issue = _make_issue_dict(
+                "ceph-tracker", issue_id, "OLD STALE TITLE",
+                description="old description",
+            )
+            (source_dir / "issues.json").write_text(json.dumps([old_issue]))
+
+            mock_connector = _make_mock_connector("ceph-tracker", [raw])
+            build_index(
+                config,
+                tmpdir,
+                since="2024-01-01",
+                connectors_override={"ceph-tracker": mock_connector},
+            )
+
+            issues_data = json.loads((source_dir / "issues.json").read_text())
+            assert len(issues_data) == 1  # same entity_id, replaced in-place
+            assert issues_data[0]["title"] != "OLD STALE TITLE"
+
+    def test_full_rebuild_overwrites(self):
+        """--full-rebuild ignores existing issues and writes only new data."""
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        from ceph_issue_kb.indexer.builder import build_index
+
+        fixture = _load("redmine_issue.json")
+        issue_data = fixture["issue"]
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=str(issue_data["id"]),
+            source_url=f"https://tracker.ceph.com/issues/{issue_data['id']}",
+            data=issue_data,
+        )
+
+        config = _make_config("ceph-tracker")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / "ceph-tracker"
+            source_dir.mkdir(parents=True)
+
+            existing_issues = []
+            for i in range(1, 4):
+                existing_issues.append(_make_issue_dict(
+                    "ceph-tracker", str(i), f"Existing issue {i}",
+                ))
+            (source_dir / "issues.json").write_text(json.dumps(existing_issues))
+
+            mock_connector = _make_mock_connector("ceph-tracker", [raw])
+            build_index(
+                config,
+                tmpdir,
+                since="2024-01-01",
+                connectors_override={"ceph-tracker": mock_connector},
+                full_rebuild=True,
+            )
+
+            issues_data = json.loads((source_dir / "issues.json").read_text())
+            # full_rebuild: only the 1 fetched issue, existing 3 discarded
+            assert len(issues_data) == 1
 
     def test_bugzilla_source(self):
         rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")

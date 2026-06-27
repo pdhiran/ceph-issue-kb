@@ -58,6 +58,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Output directory for the knowledge base (default: {DEFAULT_OUTPUT_DIR})",
     )
     parser.add_argument(
+        "--full-rebuild",
+        action="store_true",
+        help="Overwrite all data from scratch instead of merging incrementally",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging",
@@ -113,7 +118,12 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.monotonic()
     try:
-        metadata = build_index(config, args.output_dir, since=args.since)
+        metadata = build_index(
+            config,
+            args.output_dir,
+            since=args.since,
+            full_rebuild=args.full_rebuild,
+        )
     except KeyboardInterrupt:
         logger.warning("Interrupted by user")
         return 130
