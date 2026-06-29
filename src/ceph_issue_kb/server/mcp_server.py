@@ -89,11 +89,20 @@ def create_mcp_server(kb: KnowledgeBase) -> FastMCP:
             "Use this MCP when investigating test failures, debugging clusters, "
             "or searching for known issues, workarounds, and fixes across "
             "JIRA, Ceph Tracker, Red Hat Bugzilla, and Red Hat KB. "
-            "Key tools: search_issues, find_similar_issue, is_known_issue, "
+            "Key tools: search_issues, get_issue, find_similar_issue, is_known_issue, "
             "find_workaround, search_stacktrace, search_health_warning."
         ),
         icons=[ceph_icon],
     )
+
+    @mcp.tool()
+    def get_issue(issue_id: str) -> dict[str, Any]:
+        """Get full issue details including description, all comments, stacktraces, and relationships.
+
+        Use after search_issues to read the complete issue. Pass an entity_id
+        (16-char hex) or a source_id (e.g. "IBMCEPH-16205").
+        """
+        return kb.get_issue(issue_id)
 
     @mcp.tool()
     def search_issues(

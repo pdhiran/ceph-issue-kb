@@ -144,6 +144,10 @@ def create_app(kb: KnowledgeBase) -> Starlette:
             return _error_response("'warning' is required")
         return JSONResponse(kb.search_health_warning(warning))
 
+    async def get_issue(request: Request) -> JSONResponse:
+        issue_id = request.path_params["issue_id"]
+        return JSONResponse(kb.get_issue(issue_id))
+
     async def get_hot_issues(request: Request) -> JSONResponse:
         component = request.query_params.get("component")
         limit = _clamp_limit(request.query_params.get("limit", "10"))
@@ -168,6 +172,7 @@ def create_app(kb: KnowledgeBase) -> Starlette:
         Route("/api/find_related_issues", post_find_related, methods=["POST"]),
         Route("/api/search_stacktrace", post_search_stacktrace, methods=["POST"]),
         Route("/api/search_health_warning", post_search_health_warning, methods=["POST"]),
+        Route("/api/issue/{issue_id}", get_issue, methods=["GET"]),
         Route("/api/hot_issues", get_hot_issues, methods=["GET"]),
         Route("/api/component_health/{component}", get_component_health, methods=["GET"]),
         Route("/health", get_health, methods=["GET"]),

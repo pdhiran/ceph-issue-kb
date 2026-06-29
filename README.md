@@ -130,6 +130,7 @@ Once connected, agents automatically check for known Ceph issues. You can also a
 | Tool | Description |
 |------|-------------|
 | `search_issues` | Search issues across all sources with optional filters |
+| `get_issue` | Get full issue details including description and all comments |
 | `find_similar_issue` | Find issues similar to a given problem description |
 | `is_known_issue` | Check if an error message matches a known issue |
 | `find_workaround` | Search for known workarounds |

@@ -69,6 +69,45 @@ def _issue_summary(issue: NormalizedIssue) -> dict[str, Any]:
         "assertions": issue.assertions,
         "created_at": issue.created_at,
         "updated_at": issue.updated_at,
+        "comment_count": len(issue.comments),
+    }
+
+
+def _full_issue_dict(issue: NormalizedIssue) -> dict[str, Any]:
+    """Complete JSON-safe representation including description and comments."""
+    return {
+        **_issue_summary(issue),
+        "description": issue.description,
+        "resolution": issue.resolution,
+        "severity": issue.severity,
+        "labels": issue.labels,
+        "release": issue.release,
+        "reporter": issue.reporter,
+        "assignee": issue.assignee,
+        "resolved_at": issue.resolved_at,
+        "comments": [
+            {
+                "author": c.author,
+                "body": c.body,
+                "created_at": c.created_at,
+                "comment_id": c.comment_id,
+            }
+            for c in issue.comments
+        ],
+        "stacktraces": issue.stacktraces,
+        "log_snippets": issue.log_snippets,
+        "commands_mentioned": issue.commands_mentioned,
+        "configs_mentioned": issue.configs_mentioned,
+        "keywords": issue.keywords,
+        "relationships": [
+            {
+                "relation_type": r.relation_type,
+                "target_source": r.target_source,
+                "target_id": r.target_id,
+                "target_url": r.target_url,
+            }
+            for r in issue.relationships
+        ],
     }
 
 
@@ -119,6 +158,25 @@ class KnowledgeBase:
         sim = SimilarityEngine(engine)
         self._state = _KBState(search=engine, similarity=sim)
         self._kb_path = path
+
+    # -- Lookup ---------------------------------------------------------------
+
+    def get_issue(self, issue_id: str) -> dict[str, Any]:
+        """Return the full issue with description, comments, and all fields.
+
+        Looks up by ``entity_id`` first, then falls back to ``source_id``
+        (e.g. ``"IBMCEPH-16205"``).
+        """
+        state = self._state
+        issue = state.search.get_issue(issue_id)
+        if issue is None:
+            for candidate in state.search.issues.values():
+                if candidate.source_id == issue_id:
+                    issue = candidate
+                    break
+        if issue is None:
+            return _error_dict(f"Issue not found: {issue_id}")
+        return _full_issue_dict(issue)
 
     # -- Search ---------------------------------------------------------------
 
@@ -357,6 +415,7 @@ class KnowledgeBase:
             "schema_version": SCHEMA_VERSION,
             "entity_types": ["issue", "comment", "relationship"],
             "operations": [
+                "get_issue",
                 "search_issues",
                 "find_similar_issue",
                 "is_known_issue",

@@ -95,6 +95,39 @@ def client(issues):
     return TestClient(app)
 
 
+# -- GET /api/issue/{issue_id} -----------------------------------------------
+
+
+class TestGetIssueEndpoint:
+    def test_by_entity_id(self, client, issues):
+        eid = issues[0].entity_id
+        resp = client.get(f"/api/issue/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["entity_id"] == eid
+        assert "description" in data
+        assert "comments" in data
+
+    def test_by_source_id(self, client):
+        resp = client.get("/api/issue/10")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source_id"] == "10"
+        assert len(data["comments"]) == 2
+
+    def test_not_found(self, client):
+        resp = client.get("/api/issue/nonexistent_999")
+        assert resp.status_code == 200
+        assert "error" in resp.json()
+
+    def test_returns_full_comment_bodies(self, client, issues):
+        eid = issues[0].entity_id
+        resp = client.get(f"/api/issue/{eid}")
+        data = resp.json()
+        bodies = [c["body"] for c in data["comments"]]
+        assert any("noscrub" in b for b in bodies)
+
+
 # -- POST /api/search_issues -----------------------------------------------
 
 

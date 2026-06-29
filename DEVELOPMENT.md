@@ -241,6 +241,7 @@ Supported methods: `none`, `api_token`, `api_key`, `cookie`
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
+| `/api/issue/{issue_id}` | GET | Get full issue details (description, comments, stacktraces) |
 | `/api/search_issues` | POST | Search issues across all sources |
 | `/api/find_similar_issue` | POST | Find issues similar to a description |
 | `/api/is_known_issue` | POST | Check if an error matches a known issue |

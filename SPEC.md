@@ -40,7 +40,7 @@ The abstract platform contract defines generic tool interfaces that each KB impl
 | Tool | Description | Implementation |
 |------|-------------|----------------|
 | `search(query, filters)` | Generic search across all entity types | `search_issues` |
-| `lookup(entity_id)` | Retrieve a single entity by its stable ID | `find_related_issues` (by ID) |
+| `lookup(entity_id)` | Retrieve a single entity by its stable ID | `get_issue` |
 | `related(entity_id)` | Return entities related to the given entity | `find_related_issues` |
 | `metadata(entity_id)` | Return metadata, provenance, and confidence for an entity | Included in search results |
 
@@ -105,6 +105,7 @@ Every entity includes these common fields alongside domain-specific fields:
 | Tool | Purpose | Cross-KB Complement |
 |------|---------|---------------------|
 | `search_issues(query, source, component, version, status, limit)` | Search across all sources | Provides issue context for commands/docs |
+| `get_issue(issue_id)` | Get full issue with description, comments, stacktraces | Deep-dive after search |
 | `find_similar_issue(description, stacktrace, component)` | Find similar issues | Dedup across sources |
 | `is_known_issue(error_message, version)` | Check if error is known | The #1 daily triage use case |
 | `find_workaround(issue_id_or_query)` | Find known workarounds | Actionable resolution |

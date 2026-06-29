@@ -124,6 +124,82 @@ def kb(issues):
     return KnowledgeBase(search_engine=engine)
 
 
+# -- get_issue --------------------------------------------------------------
+
+
+class TestGetIssue:
+    def test_by_entity_id(self, kb, issues):
+        eid = issues[0].entity_id
+        result = kb.get_issue(eid)
+        assert "error" not in result
+        assert result["entity_id"] == eid
+        assert result["title"] == "OSD crash during deep scrub"
+
+    def test_by_source_id(self, kb):
+        result = kb.get_issue("100")
+        assert "error" not in result
+        assert result["source_id"] == "100"
+
+    def test_returns_full_description(self, kb, issues):
+        eid = issues[0].entity_id
+        result = kb.get_issue(eid)
+        assert "description" in result
+        assert "deep-scrub" in result["description"]
+
+    def test_returns_all_comments(self, kb, issues):
+        eid = issues[0].entity_id
+        result = kb.get_issue(eid)
+        assert "comments" in result
+        assert len(result["comments"]) == 2
+        assert result["comments"][0]["author"] == "dev1"
+        assert "body" in result["comments"][0]
+        assert "created_at" in result["comments"][0]
+
+    def test_returns_stacktraces(self, kb, issues):
+        eid = issues[0].entity_id
+        result = kb.get_issue(eid)
+        assert "stacktraces" in result
+        assert len(result["stacktraces"]) == 1
+
+    def test_returns_relationships(self, kb, issues):
+        eid = issues[0].entity_id
+        result = kb.get_issue(eid)
+        assert "relationships" in result
+
+    def test_not_found(self, kb):
+        result = kb.get_issue("nonexistent_id_12345")
+        assert "error" in result
+
+    def test_returns_comment_id(self, kb, issues):
+        eid = issues[0].entity_id
+        result = kb.get_issue(eid)
+        for comment in result["comments"]:
+            assert "comment_id" in comment
+
+
+# -- search_issues (comment_count) -----------------------------------------
+
+
+class TestCommentCount:
+    def test_search_results_include_comment_count(self, kb):
+        result = kb.search_issues("OSD crash deep scrub")
+        for item in result["results"]:
+            assert "comment_count" in item
+            assert isinstance(item["comment_count"], int)
+
+    def test_comment_count_matches(self, kb, issues):
+        result = kb.search_issues("OSD crash deep scrub")
+        osd_items = [r for r in result["results"] if r["source_id"] == "100"]
+        if osd_items:
+            assert osd_items[0]["comment_count"] == 2
+
+    def test_zero_comments(self, kb, issues):
+        result = kb.search_issues("multisite sync stall")
+        rgw_items = [r for r in result["results"] if r["source_id"] == "101"]
+        if rgw_items:
+            assert rgw_items[0]["comment_count"] == 0
+
+
 # -- search_issues ----------------------------------------------------------
 
 
@@ -337,6 +413,7 @@ class TestCapabilities:
         assert cap["name"] == "ceph-issue-kb"
         assert "issue" in cap["entity_types"]
         assert "search_issues" in cap["operations"]
+        assert "get_issue" in cap["operations"]
         assert "entity_counts" in cap
 
 
