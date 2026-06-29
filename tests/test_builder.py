@@ -322,6 +322,111 @@ class TestBuildIndex:
             # full_rebuild: only the 1 fetched issue, existing 3 discarded
             assert len(issues_data) == 1
 
+    def test_embedding_cache_created_on_first_build(self):
+        """First build creates embedding cache files alongside FAISS index."""
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        faiss = pytest.importorskip("faiss", reason="faiss-cpu not installed")
+        from ceph_issue_kb.indexer.builder import build_index
+
+        fixture = _load("redmine_issue.json")
+        issue_data = fixture["issue"]
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=str(issue_data["id"]),
+            source_url=f"https://tracker.ceph.com/issues/{issue_data['id']}",
+            data=issue_data,
+        )
+
+        config = _make_config("ceph-tracker")
+        mock_connector = _make_mock_connector("ceph-tracker", [raw])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_index(
+                config,
+                tmpdir,
+                since="2024-01-01",
+                connectors_override={"ceph-tracker": mock_connector},
+            )
+
+            source_dir = Path(tmpdir) / "ceph-tracker"
+            assert (source_dir / "embedding_cache_meta.json").exists()
+            assert (source_dir / "embedding_cache_vectors.npy").exists()
+
+            meta = json.loads(
+                (source_dir / "embedding_cache_meta.json").read_text()
+            )
+            assert meta["model"] == "BAAI/bge-small-en-v1.5"
+            assert len(meta["entity_ids"]) == 1
+            assert len(meta["text_hashes"]) == 1
+
+    def test_embedding_cache_reused_on_incremental_build(self):
+        """Second build with unchanged issues skips re-embedding."""
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        faiss = pytest.importorskip("faiss", reason="faiss-cpu not installed")
+        from ceph_issue_kb.indexer.builder import build_index
+
+        fixture = _load("redmine_issue.json")
+        issue_data = fixture["issue"]
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=str(issue_data["id"]),
+            source_url=f"https://tracker.ceph.com/issues/{issue_data['id']}",
+            data=issue_data,
+        )
+
+        config = _make_config("ceph-tracker")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # First build
+            mock1 = _make_mock_connector("ceph-tracker", [raw])
+            build_index(
+                config, tmpdir, since="2024-01-01",
+                connectors_override={"ceph-tracker": mock1},
+            )
+
+            source_dir = Path(tmpdir) / "ceph-tracker"
+            import numpy as np
+            vectors_v1 = np.load(
+                str(source_dir / "embedding_cache_vectors.npy")
+            )
+
+            # Second build with zero new issues (empty fetch)
+            mock2 = _make_mock_connector("ceph-tracker", [])
+            build_index(
+                config, tmpdir, since="2024-06-01",
+                connectors_override={"ceph-tracker": mock2},
+            )
+
+            vectors_v2 = np.load(
+                str(source_dir / "embedding_cache_vectors.npy")
+            )
+            np.testing.assert_array_equal(vectors_v1, vectors_v2)
+
+    def test_embedding_cache_invalidated_on_model_change(self):
+        """Cache is discarded when the embedding model name changes."""
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        from ceph_issue_kb.indexer.builder import _load_embedding_cache
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir)
+
+            import numpy as np
+            vectors = np.random.default_rng(42).random((3, 384)).astype(
+                np.float32
+            )
+            np.save(str(source_dir / "embedding_cache_vectors.npy"), vectors)
+            meta = {
+                "model": "old-model-v1",
+                "entity_ids": ["a", "b", "c"],
+                "text_hashes": ["h1", "h2", "h3"],
+            }
+            (source_dir / "embedding_cache_meta.json").write_text(
+                json.dumps(meta)
+            )
+
+            cache = _load_embedding_cache(source_dir, "new-model-v2")
+            assert cache == {"vectors": {}, "hashes": {}}
+
     def test_bugzilla_source(self):
         rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
         from ceph_issue_kb.indexer.builder import build_index

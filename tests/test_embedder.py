@@ -95,6 +95,34 @@ class TestEmbedder:
         assert "Description content" in text
         assert "rgw" in text
 
+    def test_issue_embed_text_module_function(self):
+        from ceph_issue_kb.indexer.embedder import issue_embed_text
+
+        issue = _make_issue("1", "OSD crash", "segfault in bluestore")
+        issue.components = ["osd"]
+        text = issue_embed_text(issue)
+        assert "OSD crash" in text
+        assert "segfault in bluestore" in text
+        assert "osd" in text
+
+    def test_issue_text_hash_deterministic(self):
+        from ceph_issue_kb.indexer.embedder import issue_text_hash
+
+        issue = _make_issue("1", "OSD crash", "segfault in bluestore")
+        h1 = issue_text_hash(issue)
+        h2 = issue_text_hash(issue)
+        assert h1 == h2
+        assert len(h1) == 16
+
+    def test_issue_text_hash_changes_on_content_change(self):
+        from ceph_issue_kb.indexer.embedder import issue_text_hash
+
+        issue = _make_issue("1", "OSD crash", "segfault in bluestore")
+        h1 = issue_text_hash(issue)
+        issue.description = "different description"
+        h2 = issue_text_hash(issue)
+        assert h1 != h2
+
     def test_empty_issues_list(self):
         embedder = self._make_embedder()
         vectors, entity_ids = embedder.embed_issues([])

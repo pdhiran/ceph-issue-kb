@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+import numpy as np
+
 from ceph_issue_kb.config import Config
 from ceph_issue_kb.connectors import get_connector
 from ceph_issue_kb.connectors.base import BaseConnector, ConnectorError
@@ -166,14 +168,75 @@ def _build_and_write_bm25(issues: list[NormalizedIssue], output: Path) -> None:
     logger.info("Wrote merged BM25 metadata for %d issues", len(issues))
 
 
+def _load_embedding_cache(
+    source_dir: Path, model_name: str
+) -> dict[str, Any]:
+    """Load cached embeddings, returning empty cache on miss or model change."""
+    meta_file = source_dir / "embedding_cache_meta.json"
+    vectors_file = source_dir / "embedding_cache_vectors.npy"
+
+    if meta_file.exists() and vectors_file.exists():
+        meta = json.loads(meta_file.read_text())
+        if meta.get("model") == model_name:
+            vectors = np.load(str(vectors_file))
+            entity_ids = meta["entity_ids"]
+            hashes = meta["text_hashes"]
+            return {
+                "vectors": {
+                    eid: vectors[i] for i, eid in enumerate(entity_ids)
+                },
+                "hashes": dict(zip(entity_ids, hashes)),
+            }
+        logger.info(
+            "Embedding model changed (%s -> %s), full re-embed required",
+            meta.get("model"),
+            model_name,
+        )
+
+    return {"vectors": {}, "hashes": {}}
+
+
+def _save_embedding_cache(
+    source_dir: Path, model_name: str, cache: dict[str, Any]
+) -> None:
+    """Persist the embedding cache (vectors + content hashes) to disk."""
+    entity_ids = list(cache["vectors"].keys())
+    if not entity_ids:
+        return
+
+    vectors = np.array(
+        [cache["vectors"][eid] for eid in entity_ids], dtype=np.float32
+    )
+    meta = {
+        "model": model_name,
+        "entity_ids": entity_ids,
+        "text_hashes": [cache["hashes"][eid] for eid in entity_ids],
+    }
+
+    np.save(str(source_dir / "embedding_cache_vectors.npy"), vectors)
+    (source_dir / "embedding_cache_meta.json").write_text(
+        json.dumps(meta, indent=2)
+    )
+    logger.info(
+        "Saved embedding cache for %s: %d vectors",
+        source_dir.name,
+        len(entity_ids),
+    )
+
+
 def _embed_per_source_from_disk(
     source_names: Iterable[str], output: Path
 ) -> None:
-    """Embed the full merged issue set per source and write FAISS indices."""
+    """Embed issues per source, reusing cached embeddings where possible.
+
+    Only new or changed issues are sent through the embedding model.
+    The FAISS index is always rebuilt from the full vector set (this is
+    fast — milliseconds for tens of thousands of vectors).
+    """
     from ceph_issue_kb.search.engine import _dict_to_issue
 
     try:
-        from ceph_issue_kb.indexer.embedder import Embedder
+        from ceph_issue_kb.indexer.embedder import Embedder, issue_text_hash
     except ImportError:
         logger.warning("fastembed not available; skipping embedding step")
         return
@@ -190,21 +253,69 @@ def _embed_per_source_from_disk(
         issues = [_dict_to_issue(d) for d in data]
         source_dir = output / source_name
 
+        cache = _load_embedding_cache(source_dir, embedder.model_name)
+
+        current_hashes = {
+            issue.entity_id: issue_text_hash(issue) for issue in issues
+        }
+        to_embed = [
+            issue
+            for issue in issues
+            if issue.entity_id not in cache["hashes"]
+            or cache["hashes"][issue.entity_id] != current_hashes[issue.entity_id]
+        ]
+
+        if to_embed:
+            logger.info(
+                "%s: embedding %d new/changed issues (reusing %d cached)",
+                source_name,
+                len(to_embed),
+                len(issues) - len(to_embed),
+            )
+            new_vectors, new_ids = embedder.embed_issues(to_embed)
+            for i, eid in enumerate(new_ids):
+                cache["vectors"][eid] = new_vectors[i]
+                cache["hashes"][eid] = current_hashes[eid]
+        else:
+            logger.info(
+                "%s: all %d embeddings cached, no re-embedding needed",
+                source_name,
+                len(issues),
+            )
+
+        current_ids = {issue.entity_id for issue in issues}
+        cache["vectors"] = {
+            k: v for k, v in cache["vectors"].items() if k in current_ids
+        }
+        cache["hashes"] = {
+            k: v for k, v in cache["hashes"].items() if k in current_ids
+        }
+
+        entity_ids = [issue.entity_id for issue in issues]
+        vectors = np.array(
+            [cache["vectors"][eid] for eid in entity_ids], dtype=np.float32
+        )
+
         try:
-            vectors, entity_ids = embedder.embed_issues(issues)
-            index = embedder.build_faiss_index(vectors)
+            index = Embedder.build_faiss_index(vectors)
 
             import faiss  # type: ignore[import-untyped]
 
             faiss.write_index(index, str(source_dir / "faiss.index"))
             (source_dir / "faiss_ids.json").write_text(json.dumps(entity_ids))
             logger.info(
-                "Wrote FAISS index for %s: %d vectors", source_name, len(entity_ids)
+                "Wrote FAISS index for %s: %d vectors",
+                source_name,
+                len(entity_ids),
             )
         except ImportError:
-            logger.warning("faiss-cpu not available; skipping FAISS for %s", source_name)
+            logger.warning(
+                "faiss-cpu not available; skipping FAISS for %s", source_name
+            )
         except Exception as exc:
             logger.warning("Embedding failed for %s: %s", source_name, exc)
+
+        _save_embedding_cache(source_dir, embedder.model_name, cache)
 
 
 def _write_metadata(

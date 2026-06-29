@@ -6,6 +6,7 @@ Falls back gracefully when fastembed or faiss-cpu are not installed.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+
+
+def issue_embed_text(issue: NormalizedIssue) -> str:
+    """Build the text that will be embedded for a single issue."""
+    parts = [issue.title]
+    if issue.description:
+        parts.append(issue.description[:2000])
+    if issue.components:
+        parts.append("components: " + ", ".join(issue.components))
+    return "\n".join(parts)
+
+
+def issue_text_hash(issue: NormalizedIssue) -> str:
+    """Content hash of the embed text, for cache invalidation."""
+    return hashlib.sha256(issue_embed_text(issue).encode()).hexdigest()[:16]
 
 
 class Embedder:
@@ -43,12 +59,7 @@ class Embedder:
 
     def _issue_text(self, issue: NormalizedIssue) -> str:
         """Build the text to embed for a single issue."""
-        parts = [issue.title]
-        if issue.description:
-            parts.append(issue.description[:2000])
-        if issue.components:
-            parts.append("components: " + ", ".join(issue.components))
-        return "\n".join(parts)
+        return issue_embed_text(issue)
 
     def embed_texts(self, texts: list[str]) -> np.ndarray:
         """Embed a list of raw text strings, returning an (N, dim) array."""
