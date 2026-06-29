@@ -480,7 +480,7 @@ class KnowledgeBase:
         for comment in issue.comments:
             if pattern.search(comment.body):
                 matches.append({
-                    "text": comment.body[:500],
+                    "text": comment.body,
                     "author": comment.author,
                     "date": comment.created_at,
                     "source": "comment",
