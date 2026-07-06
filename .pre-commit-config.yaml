@@ -1,0 +1,45 @@
+---
+repos:
+  # -- Secret / leak detection (gitleaks) ------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # -- Red Hat internal leak-detection (requires VPN + RH SSO login) ---------
+  # Uncomment when on VPN. First-time: pre-commit run --all-files (prompts SSO)
+  # - repo: https://gitlab.corp.redhat.com/infosec-public/developer-workbench/tools.git
+  #   rev: rh-pre-commit-2.2.0
+  #   hooks:
+  #     - id: rh-pre-commit
+
+  # -- Standard pre-commit hooks ---------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+      - id: trailing-whitespace
+        exclude: '^knowledge/'
+      - id: end-of-file-fixer
+        exclude: '^knowledge/'
+      - id: check-added-large-files
+        args: ['--maxkb=5000']
+      - id: detect-private-key
+        exclude: '^knowledge/'
+      - id: check-merge-conflict
+
+  # -- Customer data sanitization check --------------------------------------
+  - repo: local
+    hooks:
+      - id: check-customer-data
+        name: check customer data in knowledge base
+        entry: python scripts/sanitize_issues.py --check
+        language: python
+        files: '^knowledge/.*\.json$'
+        pass_filenames: false
+        description: >
+          Scans knowledge base JSON files for unsanitized customer data
+          (private IPs, internal domains, customer names). Fails the
+          commit if any are found. Run 'python scripts/sanitize_issues.py'
+          to auto-redact before committing.

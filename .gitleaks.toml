@@ -1,0 +1,100 @@
+title = "ceph-issue-kb sensitive data scanner"
+
+# Extend the default gitleaks ruleset (API keys, tokens, passwords, etc.)
+# and add custom rules for customer-specific PII that appears in scraped
+# JIRA / Bugzilla / KB issues.
+
+# ---------------------------------------------------------------------------
+# Custom rules – customer-identifiable data
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "customer-internal-domain"
+description = "Internal/corporate domain name (e.g. host.dept.corp.customer.com)"
+regex = '''[a-zA-Z0-9._-]+\.(corp|internal|intra|priv|private|lan)\.[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'''
+tags = ["customer", "pii", "domain"]
+keywords = ["corp.", "internal.", "intra.", "priv.", "private.", "lan."]
+
+  [rules.allowlist]
+  description = "Allow Red Hat and IBM internal references"
+  regexes = [
+    '''\.redhat\.com''',
+    '''\.ibm\.com''',
+    '''\.ceph\.io''',
+    '''\.suse\.(com|de)''',
+  ]
+
+[[rules]]
+id = "customer-local-domain"
+description = "Internal .local domain name"
+regex = '''[a-zA-Z0-9._-]{3,}\.(localdomain|site|home\.arpa)'''
+tags = ["customer", "pii", "domain"]
+keywords = [".localdomain", ".site", ".home.arpa"]
+
+  [rules.allowlist]
+  description = "Ignore localhost"
+  regexes = [
+    '''localhost\.localdomain''',
+    '''localhost4\.localdomain4''',
+    '''localhost6\.localdomain6''',
+  ]
+
+[[rules]]
+id = "rfc1918-ip-10"
+description = "Private IPv4 address in 10.0.0.0/8 range"
+regex = '''\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'''
+tags = ["customer", "pii", "network"]
+keywords = ["10."]
+
+  [rules.allowlist]
+  description = "Ignore common non-customer 10.x addresses"
+  regexes = [
+    '''10\.0\.0\.[012]\b''',
+  ]
+
+[[rules]]
+id = "rfc1918-ip-172"
+description = "Private IPv4 address in 172.16.0.0/12 range"
+regex = '''\b172\.(1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}\b'''
+tags = ["customer", "pii", "network"]
+keywords = ["172."]
+
+[[rules]]
+id = "rfc1918-ip-192"
+description = "Private IPv4 address in 192.168.0.0/16 range"
+regex = '''\b192\.168\.\d{1,3}\.\d{1,3}\b'''
+tags = ["customer", "pii", "network"]
+keywords = ["192.168"]
+
+[[rules]]
+id = "customer-affected-mention"
+description = "Explicit customer name disclosure (e.g. 'Customer affected - Acme Corp')"
+regex = '''(?i)(customer\s+(affected|name|is|account)\s*[-:]\s*)[A-Z][A-Za-z\s&.,()]{2,40}'''
+tags = ["customer", "pii", "name"]
+keywords = ["customer"]
+
+[[rules]]
+id = "support-case-number"
+description = "Red Hat or IBM support case number reference"
+regex = '''(?i)(case\s*(?:number|no|id|#)?|support\s*case|ticket\s*(?:id|number|#)?)\s*[:# ]?\s*\d{7,8}'''
+tags = ["customer", "pii", "support"]
+keywords = ["case", "ticket", "support"]
+
+# ---------------------------------------------------------------------------
+# Global allowlist – paths and patterns that are OK everywhere
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Global exclusions"
+paths = [
+  '''\.gitleaks\.toml$''',
+  '''\.pre-commit-config\.yaml$''',
+  '''\.gitleaksignore$''',
+  '''go\.sum$''',
+  '''go\.mod$''',
+  '''package-lock\.json$''',
+  '''poetry\.lock$''',
+  '''Pipfile\.lock$''',
+  '''\.md$''',
+  '''scripts/sanitize_issues\.py$''',
+]

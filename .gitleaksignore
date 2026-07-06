@@ -1,0 +1,8 @@
+# Allowlist entries in our own sanitizer code (not actual leaks)
+src/ceph_issue_kb/indexer/sanitizer.py:customer-local-domain:44
+src/ceph_issue_kb/indexer/sanitizer.py:customer-local-domain:45
+src/ceph_issue_kb/indexer/sanitizer.py:customer-local-domain:46
+scripts/sanitize_issues.py:customer-local-domain:96
+scripts/sanitize_issues.py:customer-local-domain:97
+scripts/sanitize_issues.py:customer-local-domain:98
+scripts/sanitize_issues.py:customer-local-domain:99

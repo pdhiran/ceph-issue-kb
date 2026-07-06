@@ -18,6 +18,7 @@ from ceph_issue_kb.config import Config
 from ceph_issue_kb.connectors import get_connector
 from ceph_issue_kb.connectors.base import BaseConnector, ConnectorError
 from ceph_issue_kb.indexer.normalizer import normalize
+from ceph_issue_kb.indexer.sanitizer import sanitize_issue
 from ceph_issue_kb.models import NormalizedIssue
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ def build_index(
         for raw in raw_issues:
             try:
                 issue = normalize(raw)
+                issue = sanitize_issue(issue)
                 normalized.append(issue)
             except Exception as exc:
                 logger.warning(
