@@ -189,6 +189,18 @@ def create_mcp_server(kb: KnowledgeBase) -> FastMCP:
     return mcp
 
 
+def _silence_stderr_logging() -> None:
+    """Suppress all logging to stderr for stdio transport.
+
+    Cursor classifies any stderr output as [error] in the MCP output panel,
+    making the server appear broken even when healthy.
+    """
+    logging.disable(logging.CRITICAL)
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    logging.root.addHandler(logging.NullHandler())
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Ceph Issue KB MCP server")
     parser.add_argument(
@@ -222,6 +234,9 @@ def main(argv: list[str] | None = None) -> None:
         help="Hours between periodic KB update checks (default: 12, 0=disable periodic)",
     )
     args = parser.parse_args(argv)
+
+    if args.transport == "stdio":
+        _silence_stderr_logging()
 
     kb_dir = _find_kb_path(args.kb_path)
     if kb_dir:
