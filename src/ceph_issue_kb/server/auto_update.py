@@ -1,11 +1,16 @@
-"""Background auto-updater — pulls latest KB data from git on startup
+"""Background auto-updater — pulls latest changes from git on startup
 and periodically thereafter.
 
-Runs ``git pull --ff-only origin main`` in a daemon thread so the server
-starts instantly with whatever data is on disk, then hot-reloads the
-search engine if new data was pulled.  A second daemon thread wakes up
-every *update_interval_hours* (default 12) to repeat the check, so
-long-running processes stay current without restarts.
+Runs ``git pull --ff-only origin <branch>`` in a daemon thread so the
+server starts instantly with whatever data is on disk, then:
+
+- If only knowledge base files changed -> hot-reload the search engine.
+- If source code (.py) changed -> ``os._exit(0)`` so Cursor restarts
+  the MCP server process with the updated code.
+
+A second daemon thread wakes up every *update_interval_hours* (default 12)
+to repeat the check, so long-running processes stay current without
+manual restarts.
 
 Every failure path logs a warning and returns — the server is never
 blocked or crashed by this.
@@ -14,6 +19,7 @@ blocked or crashed by this.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -66,12 +72,34 @@ def _detect_default_branch(repo_dir: Path) -> str:
     return "main"
 
 
-def _git_pull(repo_dir: Path) -> tuple[bool, str]:
-    """Run ``git pull --ff-only`` and return *(changed, message)*.
+def _get_head_sha(repo_dir: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
 
-    *changed* is False when the repo is already up-to-date **or** the
-    pull failed (the message explains why).
-    """
+
+def _changed_files(repo_dir: Path, old_sha: str, new_sha: str) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", old_sha, new_sha],
+            cwd=repo_dir, capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return [f for f in result.stdout.strip().splitlines() if f]
+    except Exception:
+        pass
+    return []
+
+
+def _git_pull(repo_dir: Path) -> tuple[bool, str]:
+    """Run ``git pull --ff-only`` and return *(changed, message)*."""
     branch = _detect_default_branch(repo_dir)
     try:
         result = subprocess.run(
@@ -94,10 +122,15 @@ def _git_pull(repo_dir: Path) -> tuple[bool, str]:
         return False, f"git pull error: {exc}"
 
 
+def _has_code_changes(files: list[str]) -> bool:
+    return any(f.endswith(".py") for f in files)
+
+
 def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
     """Perform the update — called in the background thread."""
     try:
         count_before = len(kb._state.search.issues)
+        old_sha = _get_head_sha(repo_root)
 
         changed, message = _git_pull(repo_root)
         if not changed:
@@ -106,6 +139,13 @@ def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
             else:
                 logger.info("Knowledge base is up to date (%d issues)", count_before)
             return
+
+        new_sha = _get_head_sha(repo_root)
+        files = _changed_files(repo_root, old_sha, new_sha) if old_sha and new_sha else []
+
+        if _has_code_changes(files):
+            logger.info("Code changes detected, restarting server")
+            os._exit(0)
 
         kb.reload(kb_path)
         count_after = len(kb._state.search.issues)
