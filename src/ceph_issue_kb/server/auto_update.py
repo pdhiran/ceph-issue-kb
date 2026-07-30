@@ -1,16 +1,21 @@
 """Background auto-updater — pulls latest changes from git on startup
 and periodically thereafter.
 
-Runs ``git pull --ff-only origin <branch>`` in a daemon thread so the
+Runs a resilient sync against ``origin/<branch>`` in a daemon thread so the
 server starts instantly with whatever data is on disk, then:
 
 - If only knowledge base files changed -> hot-reload the search engine.
 - If source code (.py) changed -> ``os._exit(0)`` so Cursor restarts
   the MCP server process with the updated code.
 
-A second daemon thread wakes up every *update_interval_hours* (default 12)
+A second daemon thread wakes up every *update_interval_hours* (default 1)
 to repeat the check, so long-running processes stay current without
 manual restarts.
+
+Consumer clones often accumulate dirty index/worktree state (for example
+staged deletions with files still on disk) that makes ``git pull --ff-only``
+fail. Before pulling we discard local tracked modifications so the KB can
+track upstream. Gitignored files (``.env``, ``.venv``) are left alone.
 
 Every failure path logs a warning and returns — the server is never
 blocked or crashed by this.
@@ -43,16 +48,25 @@ def _find_repo_root(start: Path) -> Path | None:
     return None
 
 
+def _run_git(
+    repo_dir: Path,
+    args: list[str],
+    *,
+    timeout: int = 120,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
 def _has_remote(repo_dir: Path) -> bool:
     """Return True if the git repo has at least one remote."""
     try:
-        result = subprocess.run(
-            ["git", "remote"],
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        result = _run_git(repo_dir, ["remote"], timeout=10)
         return bool(result.stdout.strip())
     except Exception:
         return False
@@ -61,9 +75,10 @@ def _has_remote(repo_dir: Path) -> bool:
 def _detect_default_branch(repo_dir: Path) -> str:
     """Detect the default branch from the remote HEAD, falling back to 'main'."""
     try:
-        result = subprocess.run(
-            ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-            capture_output=True, text=True, cwd=str(repo_dir), timeout=10,
+        result = _run_git(
+            repo_dir,
+            ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            timeout=10,
         )
         if result.returncode == 0:
             return result.stdout.strip().replace("origin/", "")
@@ -74,10 +89,7 @@ def _detect_default_branch(repo_dir: Path) -> str:
 
 def _get_head_sha(repo_dir: Path) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_dir, capture_output=True, text=True, timeout=10,
-        )
+        result = _run_git(repo_dir, ["rev-parse", "HEAD"], timeout=10)
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception:
@@ -87,9 +99,10 @@ def _get_head_sha(repo_dir: Path) -> str | None:
 
 def _changed_files(repo_dir: Path, old_sha: str, new_sha: str) -> list[str]:
     try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", old_sha, new_sha],
-            cwd=repo_dir, capture_output=True, text=True, timeout=30,
+        result = _run_git(
+            repo_dir,
+            ["diff", "--name-only", old_sha, new_sha],
+            timeout=30,
         )
         if result.returncode == 0:
             return [f for f in result.stdout.strip().splitlines() if f]
@@ -98,24 +111,98 @@ def _changed_files(repo_dir: Path, old_sha: str, new_sha: str) -> list[str]:
     return []
 
 
-def _git_pull(repo_dir: Path) -> tuple[bool, str]:
-    """Run ``git pull --ff-only`` and return *(changed, message)*."""
-    branch = _detect_default_branch(repo_dir)
+def _is_dirty(repo_dir: Path) -> bool:
     try:
-        result = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", branch],
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        output = result.stdout.strip()
+        result = _run_git(repo_dir, ["status", "--porcelain"], timeout=30)
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
+def _discard_local_tracked_changes(repo_dir: Path) -> str | None:
+    """Reset index + worktree to HEAD when dirty.
+
+    Returns a human-readable note when a reset ran, or an error message
+    starting with ``failed`` / ``error``. Returns ``None`` when clean.
+    """
+    if not _is_dirty(repo_dir):
+        return None
+    try:
+        result = _run_git(repo_dir, ["reset", "--hard", "HEAD"], timeout=60)
         if result.returncode != 0:
-            stderr = result.stderr.strip()
-            return False, f"git pull failed: {stderr or output}"
-        if "Already up to date" in output:
+            stderr = result.stderr.strip() or result.stdout.strip()
+            return f"failed to reset dirty worktree: {stderr}"
+        return "Discarded local tracked changes blocking git pull"
+    except subprocess.TimeoutExpired:
+        return "error: git reset --hard timed out"
+    except Exception as exc:
+        return f"error resetting dirty worktree: {exc}"
+
+
+def _git_lfs_pull(repo_dir: Path) -> None:
+    """Best-effort ``git lfs pull`` so index blobs are materialised."""
+    try:
+        result = _run_git(repo_dir, ["lfs", "pull"], timeout=600)
+        if result.returncode != 0:
+            logger.warning(
+                "Auto-update: git lfs pull failed: %s",
+                result.stderr.strip() or result.stdout.strip(),
+            )
+    except FileNotFoundError:
+        logger.debug("Auto-update: git-lfs not installed; skipping lfs pull")
+    except subprocess.TimeoutExpired:
+        logger.warning("Auto-update: git lfs pull timed out")
+    except Exception as exc:
+        logger.warning("Auto-update: git lfs pull error: %s", exc)
+
+
+def _git_pull(repo_dir: Path) -> tuple[bool, str]:
+    """Fetch + fast-forward to origin, recovering from dirty trees.
+
+    Returns *(changed, message)*.
+    """
+    branch = _detect_default_branch(repo_dir)
+    remote_ref = f"origin/{branch}"
+    old_sha = _get_head_sha(repo_dir)
+
+    try:
+        fetch = _run_git(repo_dir, ["fetch", "origin", branch], timeout=180)
+        if fetch.returncode != 0:
+            stderr = fetch.stderr.strip() or fetch.stdout.strip()
+            return False, f"git fetch failed: {stderr}"
+
+        reset_note = _discard_local_tracked_changes(repo_dir)
+        if reset_note:
+            if reset_note.startswith(("failed", "error")):
+                return False, reset_note
+            logger.warning("Auto-update: %s", reset_note)
+
+        pull = _run_git(
+            repo_dir,
+            ["merge", "--ff-only", remote_ref],
+            timeout=180,
+        )
+        if pull.returncode != 0:
+            stderr = (pull.stderr or pull.stdout or "").strip()
+            # Consumer KB clones should track upstream; hard-reset as last resort.
+            logger.warning(
+                "Auto-update: ff-only merge failed (%s); hard-resetting to %s",
+                stderr or "unknown error",
+                remote_ref,
+            )
+            hard = _run_git(repo_dir, ["reset", "--hard", remote_ref], timeout=120)
+            if hard.returncode != 0:
+                err = hard.stderr.strip() or hard.stdout.strip()
+                return False, f"git pull failed: {err or stderr}"
+
+        _git_lfs_pull(repo_dir)
+
+        new_sha = _get_head_sha(repo_dir)
+        if old_sha and new_sha and old_sha == new_sha:
             return False, "Already up to date"
-        return True, output
+        if not old_sha and not new_sha:
+            return False, "Already up to date"
+        return True, pull.stdout.strip() or f"Updated to {remote_ref}"
     except subprocess.TimeoutExpired:
         return False, "git pull timed out"
     except Exception as exc:
@@ -175,7 +262,7 @@ def start_auto_update(
     kb: KnowledgeBase,
     kb_path: Path | None,
     *,
-    update_interval_hours: float = 12,
+    update_interval_hours: float = 1,
 ) -> None:
     """Pull latest KB from git now and schedule periodic re-checks.
 
@@ -227,8 +314,8 @@ def start_auto_update(
         )
         periodic.start()
         logger.info(
-            "Scheduled next KB update check in %dh",
-            int(update_interval_hours),
+            "Scheduled next KB update check in %sh",
+            update_interval_hours,
         )
 
 

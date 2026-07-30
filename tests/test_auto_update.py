@@ -64,35 +64,74 @@ class TestHasRemote:
 
 class TestGitPull:
     def test_already_up_to_date(self, tmp_path):
-        with patch("ceph_issue_kb.server.auto_update.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                stdout="Already up to date.", returncode=0,
-            )
+        def runner(cmd, **_kwargs):
+            args = cmd
+            if args[:3] == ["git", "rev-parse", "HEAD"]:
+                return MagicMock(stdout="abc123\n", returncode=0)
+            if args[:2] == ["git", "status"]:
+                return MagicMock(stdout="", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        with patch("ceph_issue_kb.server.auto_update.subprocess.run", side_effect=runner):
             changed, msg = _git_pull(tmp_path)
             assert changed is False
             assert "Already up to date" in msg
 
     def test_new_changes(self, tmp_path):
-        with patch("ceph_issue_kb.server.auto_update.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                stdout="Updating abc..def\n3 files changed", returncode=0,
-            )
+        shas = iter(["aaa", "bbb"])
+
+        def runner(cmd, **_kwargs):
+            args = cmd
+            if args[:3] == ["git", "rev-parse", "HEAD"]:
+                return MagicMock(stdout=next(shas) + "\n", returncode=0)
+            if args[:2] == ["git", "status"]:
+                return MagicMock(stdout="", returncode=0)
+            if args[:3] == ["git", "merge", "--ff-only"]:
+                return MagicMock(stdout="Updating aaa..bbb\n", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        with patch("ceph_issue_kb.server.auto_update.subprocess.run", side_effect=runner):
             changed, msg = _git_pull(tmp_path)
             assert changed is True
 
-    def test_pull_failure(self, tmp_path):
-        with patch("ceph_issue_kb.server.auto_update.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                stdout="", stderr="fatal: not a git repo", returncode=128,
-            )
+    def test_discards_dirty_tree_then_pulls(self, tmp_path):
+        shas = iter(["aaa", "bbb"])
+        reset_calls = []
+
+        def runner(cmd, **_kwargs):
+            args = cmd
+            if args[:3] == ["git", "rev-parse", "HEAD"]:
+                return MagicMock(stdout=next(shas) + "\n", returncode=0)
+            if args[:2] == ["git", "status"]:
+                return MagicMock(stdout="D  knowledge/issues.json\n", returncode=0)
+            if args[:3] == ["git", "reset", "--hard"] and args[3] == "HEAD":
+                reset_calls.append(args)
+                return MagicMock(stdout="", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        with patch("ceph_issue_kb.server.auto_update.subprocess.run", side_effect=runner):
+            changed, _msg = _git_pull(tmp_path)
+            assert changed is True
+            assert reset_calls
+
+    def test_fetch_failure(self, tmp_path):
+        def runner(cmd, **_kwargs):
+            args = cmd
+            if args[:2] == ["git", "fetch"]:
+                return MagicMock(stdout="", stderr="fatal: not a git repo", returncode=128)
+            if args[:3] == ["git", "rev-parse", "HEAD"]:
+                return MagicMock(stdout="abc\n", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        with patch("ceph_issue_kb.server.auto_update.subprocess.run", side_effect=runner):
             changed, msg = _git_pull(tmp_path)
             assert changed is False
-            assert "failed" in msg
+            assert "fetch failed" in msg
 
     def test_timeout(self, tmp_path):
         with patch(
             "ceph_issue_kb.server.auto_update.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="git pull", timeout=120),
+            side_effect=subprocess.TimeoutExpired(cmd="git fetch", timeout=120),
         ):
             changed, msg = _git_pull(tmp_path)
             assert changed is False
