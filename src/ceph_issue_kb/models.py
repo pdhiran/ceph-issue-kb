@@ -87,6 +87,7 @@ class NormalizedIssue:
     commands_mentioned: list[str] = field(default_factory=list)
     configs_mentioned: list[str] = field(default_factory=list)
     log_snippets: list[str] = field(default_factory=list)
+    error_messages: list[str] = field(default_factory=list)
 
     relationships: list[Relationship] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)

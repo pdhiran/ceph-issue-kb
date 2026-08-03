@@ -35,16 +35,26 @@ _ASSERTION_PATTERN = re.compile(
 )
 
 _HEALTH_WARNING_PATTERN = re.compile(
-    r"\b(?:HEALTH_WARN|HEALTH_ERR|HEALTH_OK"
-    r"|PG_DEGRADED|PG_RECOVERY_FULL|PG_BACKFILL_FULL|PG_INCOMPLETE"
-    r"|OSD_DOWN|OSD_NEARFULL|OSD_FULL|OSD_BACKFILLFULL"
-    r"|MON_DOWN|MON_CLOCK_SKEW"
-    r"|MDS_DAMAGE|MDS_CACHE_OVERSIZED"
-    r"|TOO_MANY_PGS|TOO_FEW_PGS"
-    r"|POOL_NEARFULL|POOL_BACKFILLFULL"
-    r"|OBJECT_MISPLACED|OBJECT_UNFOUND"
+    r"\b(?:HEALTH_(?:WARN|ERR|OK)"
+    r"|PG_[A-Z_]+"
+    r"|OSD_[A-Z_]+"
+    r"|MON_[A-Z_]+"
+    r"|MDS_[A-Z_]+"
+    r"|MGR_[A-Z_]+"
+    r"|POOL_[A-Z_]+"
+    r"|OBJECT_[A-Z_]+"
     r"|SLOW_OPS|REQUEST_SLOW"
-    r"|RECENT_CRASH|RECENT_MGR_CRASH)\b"
+    r"|RECENT_CRASH|RECENT_MGR_CRASH"
+    r"|TOO_MANY_PGS|TOO_FEW_PGS"
+    r"|UPGRADE_[A-Z_]+"
+    r"|CEPHADM_[A-Z_]+"
+    r"|DAEMON_[A-Z_]+"
+    r"|AUTH_[A-Z_]+"
+    r"|NFS_[A-Z_]+"
+    r"|RGW_[A-Z_]+"
+    r"|RBD_[A-Z_]+"
+    r"|CACHE_[A-Z_]+"
+    r")\b"
 )
 
 _CEPH_COMMAND_PATTERN = re.compile(
@@ -78,6 +88,20 @@ _CONFIG_PREFIXES = frozenset(
     }
 )
 
+_ERROR_MESSAGE_PATTERN = re.compile(
+    r"^.*(?:"
+    r"Malformed input.*"
+    r"|failed to (?:load|find|parse|fetch|create|connect|open)\b.*"
+    r"|error (?:setting|parsing|loading|reading|writing|creating)\b.*"
+    r"|monclient:.*(?:not found|failed|error).*"
+    r"|auth:.*(?:error|failed).*"
+    r"|unable to (?:fetch|update|create|load|find|resolve)\b.*"
+    r"|Error:\s+[A-Z][A-Z_]+:.*"
+    r"|(?:Input/output error|Permission denied|Connection refused|No such file)"
+    r").*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 _LOG_LINE_PATTERN = re.compile(
     r"^(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
     r"|[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}"
@@ -96,6 +120,7 @@ class ExtractedSignals:
     commands_mentioned: list[str] = field(default_factory=list)
     configs_mentioned: list[str] = field(default_factory=list)
     log_snippets: list[str] = field(default_factory=list)
+    error_messages: list[str] = field(default_factory=list)
 
 
 def extract_signals(text: str) -> ExtractedSignals:
@@ -110,6 +135,7 @@ def extract_signals(text: str) -> ExtractedSignals:
         commands_mentioned=_extract_commands(text),
         configs_mentioned=_extract_configs(text),
         log_snippets=_extract_log_snippets(text),
+        error_messages=_extract_error_messages(text),
     )
 
 
@@ -157,6 +183,19 @@ def _extract_configs(text: str) -> list[str]:
     """
     candidates = set(_CONFIG_PARAM_PATTERN.findall(text))
     return sorted(c for c in candidates if any(c.startswith(p) for p in _CONFIG_PREFIXES))
+
+
+def _extract_error_messages(text: str, max_errors: int = 30) -> list[str]:
+    seen: set[str] = set()
+    results: list[str] = []
+    for m in _ERROR_MESSAGE_PATTERN.finditer(text):
+        line = m.group(0).strip()
+        if len(line) > 10 and line not in seen:
+            seen.add(line)
+            results.append(line[:500])
+        if len(results) >= max_errors:
+            break
+    return results
 
 
 def _extract_log_snippets(text: str, max_snippets: int = 50) -> list[str]:

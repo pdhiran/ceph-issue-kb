@@ -7,6 +7,7 @@ data to the canonical schema, extracts signals, and builds relationships.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Callable
@@ -96,6 +97,9 @@ def _merge_signals(signals: ExtractedSignals, into: NormalizedIssue) -> None:
         dict.fromkeys(into.configs_mentioned + signals.configs_mentioned)
     )
     into.log_snippets = list(dict.fromkeys(into.log_snippets + signals.log_snippets))
+    into.error_messages = list(
+        dict.fromkeys(into.error_messages + signals.error_messages)
+    )
 
 
 def _safe_str(val: Any, default: str = "") -> str:
@@ -195,6 +199,52 @@ _SOURCE_NORMALIZERS["ceph-tracker"] = _normalize_redmine
 
 
 # ---------------------------------------------------------------------------
+# JIRA — Atlassian Document Format helpers
+# ---------------------------------------------------------------------------
+
+_ADF_BLOCK_TYPES = frozenset({
+    "codeBlock", "paragraph", "heading", "listItem",
+    "blockquote", "orderedList", "bulletList", "table",
+    "tableRow", "tableCell", "tableHeader", "mediaSingle",
+    "rule", "panel",
+})
+
+
+def _adf_to_text(node: Any) -> str:
+    """Recursively extract plain text from Atlassian Document Format (ADF).
+
+    Handles both raw ADF dicts (from Jira API v3) and plain strings
+    (from API v2 or rendered fields).  Returns the content as-is when
+    ADF parsing is not applicable.
+    """
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, list):
+        return "".join(_adf_to_text(item) for item in node)
+    if isinstance(node, dict):
+        node_type = node.get("type", "")
+        if node_type == "text":
+            return node.get("text", "")
+        children = node.get("content", [])
+        parts = [_adf_to_text(child) for child in children]
+        if node_type in _ADF_BLOCK_TYPES:
+            return "\n".join(p for p in parts if p) + "\n"
+        return "".join(parts)
+    return str(node)
+
+
+def _jira_field_to_text(value: Any) -> str:
+    """Convert a Jira field value (ADF dict, plain string, or None) to text."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return _adf_to_text(value).strip()
+    return str(value)
+
+
+# ---------------------------------------------------------------------------
 # JIRA
 # ---------------------------------------------------------------------------
 
@@ -204,7 +254,7 @@ def _normalize_jira(raw: RawIssue) -> NormalizedIssue:
     fields = data.get("fields", {})
     entity_id = make_entity_id(raw.source, raw.source_id)
 
-    description = _safe_str(fields.get("description", ""))
+    description = _jira_field_to_text(fields.get("description"))
     title = _safe_str(fields.get("summary", ""))
 
     comments: list[Comment] = []
@@ -215,7 +265,7 @@ def _normalize_jira(raw: RawIssue) -> NormalizedIssue:
             Comment(
                 comment_id=str(c.get("id", "")),
                 author=_safe_str(author_obj.get("displayName", "")),
-                body=_safe_str(c.get("body", "")),
+                body=_jira_field_to_text(c.get("body")),
                 created_at=_safe_str(c.get("created", "")),
             )
         )

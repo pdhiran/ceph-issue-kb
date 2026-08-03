@@ -62,10 +62,18 @@ def _bm25_doc_text(issue: NormalizedIssue) -> str:
         issue.title,
         issue.summary,
     ]
+    if issue.description:
+        parts.append(issue.description[:5000])
+    for c in issue.comments[:10]:
+        parts.append(c.body[:2000])
     parts.extend(issue.health_warnings)
     parts.extend(issue.assertions)
     parts.extend(issue.commands_mentioned)
     parts.extend(issue.configs_mentioned)
+    parts.extend(issue.log_snippets[:20])
+    parts.extend(issue.stacktraces[:5])
+    if hasattr(issue, "error_messages"):
+        parts.extend(issue.error_messages)
     if issue.components:
         parts.append(" ".join(issue.components))
     if issue.labels:
@@ -446,7 +454,7 @@ def _dict_to_issue(d: dict[str, Any]) -> NormalizedIssue:
         "components", "labels", "affected_versions", "fixed_versions",
         "stacktraces", "assertions", "health_warnings",
         "commands_mentioned", "configs_mentioned", "log_snippets",
-        "keywords",
+        "error_messages", "keywords",
     }
     for fld in _list_fields:
         if fld in filtered and filtered[fld] is None:

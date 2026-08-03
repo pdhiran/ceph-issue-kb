@@ -26,7 +26,10 @@ def issue_embed_text(issue: NormalizedIssue) -> str:
     """Build the text that will be embedded for a single issue."""
     parts = [issue.title]
     if issue.description:
-        parts.append(issue.description[:2000])
+        parts.append(issue.description[:3000])
+    if issue.comments:
+        comment_text = "\n".join(c.body[:500] for c in issue.comments[:5])
+        parts.append(comment_text[:1500])
     if issue.components:
         parts.append("components: " + ", ".join(issue.components))
     return "\n".join(parts)

@@ -67,6 +67,7 @@ def _issue_summary(issue: NormalizedIssue) -> dict[str, Any]:
         "fixed_versions": issue.fixed_versions,
         "health_warnings": issue.health_warnings,
         "assertions": issue.assertions,
+        "error_messages": getattr(issue, "error_messages", []),
         "created_at": issue.created_at,
         "updated_at": issue.updated_at,
         "comment_count": len(issue.comments),
@@ -193,9 +194,16 @@ class KnowledgeBase:
             return {"results": [], "total": 0, "query": query, "message": "Empty query"}
         limit = max(1, min(int(limit), self._MAX_LIMIT))
         state = self._state
+
+        direct = self._try_direct_lookup(query)
         results = state.search.search(
             query, source=source, component=component, status=status, limit=limit * 2,
         )
+        if direct:
+            seen = {r.issue.entity_id for r in results}
+            for d in direct:
+                if d.issue.entity_id not in seen:
+                    results.insert(0, d)
 
         if version:
             results = self._filter_version(results, version)
@@ -456,11 +464,35 @@ class KnowledgeBase:
             or version_lower in (r.issue.release or "").lower()
         ]
 
+    _ISSUE_KEY_RE = re.compile(r"\b(IBMCEPH-\d+)\b", re.IGNORECASE)
+
+    def _try_direct_lookup(self, query: str) -> list:
+        """If query contains Jira issue key(s), look them up by source_id."""
+        from ceph_issue_kb.models import SearchResult
+
+        keys = self._ISSUE_KEY_RE.findall(query)
+        if not keys:
+            return []
+        state = self._state
+        results = []
+        seen = set()
+        for key in keys:
+            key_upper = key.upper()
+            for issue in state.search.issues.values():
+                if issue.source_id.upper() == key_upper and issue.entity_id not in seen:
+                    results.append(SearchResult(issue=issue, score=100.0, search_source="direct"))
+                    seen.add(issue.entity_id)
+                    break
+        return results
+
     def _resolve_issue_or_search(self, query: str) -> NormalizedIssue | None:
-        """If *query* looks like an entity ID, look it up; otherwise search."""
+        """If *query* looks like an entity/source ID, look it up; otherwise search."""
         state = self._state
         if re.fullmatch(r"[0-9a-f]{16}", query):
             return state.search.get_issue(query)
+        direct = self._try_direct_lookup(query)
+        if direct:
+            return direct[0].issue
         results = state.search.search(query, limit=1)
         return results[0].issue if results else None
 
