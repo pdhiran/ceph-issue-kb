@@ -53,8 +53,11 @@ echo ""
 # Run the indexer
 python3 index_issues.py --config connectors.yaml --since "$SINCE" --verbose
 
-# Save today's date as last successful run
-date +%Y-%m-%d > "$LAST_RUN_FILE"
+# Signal MCP server to hot-reload (picked up within 5s by the trigger watcher)
+touch .reload_trigger
+
+# Save yesterday's date for 1-day overlap buffer (prevents edge-case misses)
+date -v-1d +%Y-%m-%d > "$LAST_RUN_FILE" 2>/dev/null || date -d "1 day ago" +%Y-%m-%d > "$LAST_RUN_FILE"
 
 # Commit and push if there are changes
 if [ -n "$(git status --porcelain knowledge/)" ]; then

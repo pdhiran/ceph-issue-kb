@@ -158,6 +158,29 @@ def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
         logger.warning("Auto-update failed, continuing with existing data: %s", exc)
 
 
+def _reload_trigger_loop(
+    kb: KnowledgeBase,
+    kb_path: Path,
+    repo_root: Path,
+    stop_event: threading.Event,
+) -> None:
+    """Poll for .reload_trigger file every 5s; reload KB when found."""
+    trigger_file = repo_root / ".reload_trigger"
+    while not stop_event.wait(timeout=5):
+        if trigger_file.exists():
+            try:
+                trigger_file.unlink(missing_ok=True)
+                count_before = len(kb._state.search.issues)
+                kb.reload(kb_path)
+                count_after = len(kb._state.search.issues)
+                logger.info(
+                    "Hot-reload triggered: %d -> %d issues",
+                    count_before, count_after,
+                )
+            except Exception as exc:
+                logger.warning("Trigger reload failed: %s", exc)
+
+
 def _periodic_loop(
     kb: KnowledgeBase,
     kb_path: Path,
@@ -215,10 +238,20 @@ def start_auto_update(
     )
     thread.start()
 
+    # File-based reload trigger (5s polling) — allows update_index.sh
+    # to signal immediate reload without waiting for the periodic cycle.
+    stop_event = threading.Event()
+    _periodic_stop = stop_event
+    trigger_thread = threading.Thread(
+        target=_reload_trigger_loop,
+        args=(kb, kb_path, repo_root, stop_event),
+        daemon=True,
+        name="kb-reload-trigger",
+    )
+    trigger_thread.start()
+
     if update_interval_hours > 0:
         interval_seconds = update_interval_hours * 3600
-        stop_event = threading.Event()
-        _periodic_stop = stop_event
         periodic = threading.Thread(
             target=_periodic_loop,
             args=(kb, kb_path, repo_root, interval_seconds, stop_event),

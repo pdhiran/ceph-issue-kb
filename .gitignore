@@ -23,3 +23,4 @@ htmlcov/
 knowledge/**/tmp/
 *.onnx
 .last_index_update
+.reload_trigger
