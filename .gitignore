@@ -18,9 +18,10 @@ venv/
 htmlcov/
 .coverage
 *.log
-# knowledge/ is committed (pre-built index ships with the repo)
-# Only ignore temporary/partial index builds
-knowledge/**/tmp/
 *.onnx
 .last_index_update
 .reload_trigger
+
+# Index is published as a GitHub Release (tag: knowledge), not committed.
+knowledge/*
+!knowledge/README.md

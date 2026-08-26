@@ -1,6 +1,6 @@
 # Ceph Issue Intelligence KB
 
-Searchable knowledge base of **14,600+ Ceph issues** from IBM Ceph JIRA and Red Hat KB. Ships pre-built — clone, install, and immediately search known issues, workarounds, and fixes from your AI agent.
+Searchable knowledge base of **18,000+ Ceph issues** from IBM Ceph JIRA and Red Hat KB. Clone, install, and start the MCP server — it downloads the pre-built index from GitHub Releases on first run.
 
 ## Setup
 
@@ -32,7 +32,7 @@ Choose the integration that matches your agent:
 }
 ```
 
-Restart Cursor. The MCP server starts automatically and pulls the latest issue data on startup — no manual `git pull` needed.
+Restart Cursor. The MCP server starts automatically, downloads the issue index from GitHub Releases if needed, and checks for updates on a schedule — no manual `git pull` needed.
 
 To disable auto-update, add `"--no-auto-update"` to `args`.
 
@@ -150,7 +150,7 @@ Once connected, agents automatically check for known Ceph issues. You can also a
 | IBM Ceph JIRA | 14,037 | Internal Ceph bug tracker and feature requests |
 | Red Hat KB | 600 | Customer-facing knowledge base articles |
 
-The knowledge base is updated daily by the maintainer with the latest bugs and articles. Your MCP server automatically pulls new data every 12 hours — no action needed on your part.
+The knowledge base is updated daily by the maintainer with the latest bugs and articles. Your MCP server automatically downloads the latest index from GitHub Releases — no action needed on your part.
 
 ## VS Code Extension
 

@@ -195,7 +195,7 @@ def main(argv: list[str] | None = None) -> None:
         "--auto-update",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Auto-pull latest knowledge base from git on startup (default: enabled)",
+        help="Auto-update index from GitHub Releases (default: enabled)",
     )
     parser.add_argument(
         "--update-interval",
@@ -209,6 +209,9 @@ def main(argv: list[str] | None = None) -> None:
     from ceph_issue_kb.server.mcp_server import _find_kb_path
 
     kb_dir = _find_kb_path(args.kb_path)
+    if kb_dir is None and args.auto_update:
+        from ceph_issue_kb.server.auto_update import ensure_knowledge
+        kb_dir = ensure_knowledge(Path.cwd())
     if kb_dir:
         logger.info("Loading knowledge base from %s", kb_dir)
         kb = KnowledgeBase.load(kb_dir)

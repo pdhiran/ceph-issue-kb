@@ -102,7 +102,7 @@ ceph-issue-kb/
 ├── examples/                   # Integration examples
 │   └── agent_integration.py    # Python client, LangChain/CrewAI tools
 │
-├── knowledge/                  # Built indices (committed — ships pre-built)
+├── knowledge/                  # Built indices (downloaded from GitHub Releases, not in git)
 │   └── issues-2024-2025/
 │       ├── ibm-jira/
 │       │   ├── issues.json
@@ -357,10 +357,10 @@ python3 index_issues.py --config connectors.yaml --since 2025-06-01 --verbose
 
 ### Daily Index Updates (Maintainer)
 
-The pre-built index ships with the repo so users can use it immediately. As maintainer, run daily updates to keep it current:
+The pre-built index is published as a GitHub Release (tag `knowledge`, asset `knowledge.tar.gz`) so it does not consume Git LFS quota. As maintainer, run daily updates to keep it current:
 
 ```bash
-# Fetch yesterday's updates, commit, and push
+# Fetch yesterday's updates and publish the release
 ./update_index.sh
 
 # Fetch last 7 days
@@ -368,7 +368,12 @@ The pre-built index ships with the repo so users can use it immediately. As main
 
 # Fetch since a specific date
 ./update_index.sh 2025-06-01
+
+# Re-publish the current knowledge/ without re-indexing
+./update_index.sh --publish-only
 ```
+
+Requires GitHub CLI (`gh auth login`). Does **not** commit `knowledge/` to git.
 
 Or set up a cron job:
 ```bash
@@ -378,7 +383,7 @@ Or set up a cron job:
 
 ### Pre-built Index
 
-The `knowledge/` directory is committed to the repo. Users clone and immediately have a searchable issue knowledge base — no API keys or indexing required. The maintainer keeps it up to date.
+The `knowledge/` directory is gitignored. On first start the MCP server / REST API downloads the latest release asset into `knowledge/`. No API keys or local indexing required. The maintainer keeps the release up to date.
 
 ### Updating Connectors
 

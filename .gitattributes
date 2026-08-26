@@ -1,3 +1,0 @@
-knowledge/**/*.json filter=lfs diff=lfs merge=lfs -text
-knowledge/**/*.index filter=lfs diff=lfs merge=lfs -text
-knowledge/**/*.npy filter=lfs diff=lfs merge=lfs -text

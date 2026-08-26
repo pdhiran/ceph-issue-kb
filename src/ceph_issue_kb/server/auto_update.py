@@ -1,12 +1,12 @@
-"""Background auto-updater — pulls latest changes from git on startup
-and periodically thereafter.
+"""Background auto-updater — pulls code from git and the issue index from
+GitHub Releases.
 
-Runs ``git pull --ff-only origin <branch>`` in a daemon thread so the
-server starts instantly with whatever data is on disk, then:
+Runs in a daemon thread so the server starts instantly with whatever data
+is on disk, then:
 
-- If only knowledge base files changed -> hot-reload the search engine.
-- If source code (.py) changed -> ``os._exit(0)`` so Cursor restarts
-  the MCP server process with the updated code.
+- If the knowledge-base tarball is newer -> download, extract, hot-reload.
+- If source code (.py) changed via ``git pull --ff-only`` -> ``os._exit(0)``
+  so Cursor restarts the MCP server process with the updated code.
 
 A second daemon thread wakes up every *update_interval_hours* (default 12)
 to repeat the check, so long-running processes stay current without
@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
+import tarfile
 import threading
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import requests
 
 if TYPE_CHECKING:
     from ceph_issue_kb.server.kb import KnowledgeBase
@@ -32,6 +35,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _periodic_stop: threading.Event | None = None
+
+DEFAULT_RELEASE_REPO = os.environ.get("CEPH_ISSUE_KB_RELEASE_REPO", "pdhiran/ceph-issue-kb")
+RELEASE_TAG = "knowledge"
+ASSET_NAME = "knowledge.tar.gz"
+STAMP_NAME = ".release_etag"
+KNOWLEDGE_DIRNAME = "knowledge"
+
+_UA = {"User-Agent": "ceph-issue-kb"}
+_HEAD_TIMEOUT = 30
+_DOWNLOAD_TIMEOUT = 600
 
 
 def _find_repo_root(start: Path) -> Path | None:
@@ -126,28 +139,216 @@ def _has_code_changes(files: list[str]) -> bool:
     return any(f.endswith(".py") for f in files)
 
 
+def _knowledge_root(repo_root: Path) -> Path:
+    return repo_root / KNOWLEDGE_DIRNAME
+
+
+def _stamp_path(repo_root: Path) -> Path:
+    return _knowledge_root(repo_root) / STAMP_NAME
+
+
+def _asset_url(repo: str | None = None) -> str:
+    slug = repo or DEFAULT_RELEASE_REPO
+    return f"https://github.com/{slug}/releases/download/{RELEASE_TAG}/{ASSET_NAME}"
+
+
+def _read_stamp(repo_root: Path) -> str:
+    path = _stamp_path(repo_root)
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _write_stamp(repo_root: Path, stamp: str) -> None:
+    path = _stamp_path(repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(stamp + "\n", encoding="utf-8")
+
+
+def _validator_from_headers(headers: dict) -> str:
+    """Prefer ETag, then Last-Modified, then Content-Length."""
+    etag = headers.get("ETag") or headers.get("etag") or ""
+    if etag:
+        return etag.strip()
+    modified = headers.get("Last-Modified") or headers.get("last-modified") or ""
+    if modified:
+        return modified.strip()
+    length = headers.get("Content-Length") or headers.get("content-length") or ""
+    return length.strip()
+
+
+def _head_asset(url: str) -> tuple[int, str]:
+    """HEAD the release asset. Returns *(status_code, validator)*."""
+    response = requests.head(
+        url, allow_redirects=True, timeout=_HEAD_TIMEOUT, headers=_UA,
+    )
+    return response.status_code, _validator_from_headers(response.headers)
+
+
+def _resolve_kb_path(root: Path) -> Path | None:
+    """Return the KB directory under *root*, or None if it is not populated."""
+    if not root.is_dir():
+        return None
+    if (root / "issues.json").exists():
+        return root
+    source_dirs = [
+        sub for sub in sorted(root.iterdir())
+        if sub.is_dir() and (sub / "issues.json").exists()
+    ]
+    if source_dirs:
+        return root
+    for sub in sorted(root.iterdir()):
+        if not sub.is_dir() or sub.name.startswith("."):
+            continue
+        if (sub / "issues.json").exists():
+            return sub
+        inner = [
+            s for s in sorted(sub.iterdir())
+            if s.is_dir() and (s / "issues.json").exists()
+        ]
+        if inner:
+            return sub
+    return None
+
+
+def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
+    """Extract *tar* into *dest*, rejecting path-escape members."""
+    dest = dest.resolve()
+    for member in tar.getmembers():
+        target = (dest / member.name).resolve()
+        if not str(target).startswith(str(dest) + os.sep) and target != dest:
+            raise ValueError(f"unsafe path in archive: {member.name}")
+    kwargs: dict = {}
+    if hasattr(tarfile, "data_filter"):
+        kwargs["filter"] = "data"
+    tar.extractall(dest, **kwargs)
+
+
+def _install_extracted(staging: Path, knowledge_root: Path) -> None:
+    """Move extracted archive members into *knowledge_root*, replacing existing."""
+    knowledge_root.mkdir(parents=True, exist_ok=True)
+    for child in staging.iterdir():
+        if child.name in {STAMP_NAME, ".staging"}:
+            continue
+        dest = knowledge_root / child.name
+        if dest.exists():
+            if dest.is_dir():
+                shutil.rmtree(dest)
+            else:
+                dest.unlink()
+        shutil.move(str(child), str(dest))
+
+
+def _sync_knowledge_release(repo_root: Path) -> tuple[bool, str]:
+    """Download and extract the knowledge tarball if the remote asset is newer.
+
+    Returns *(changed, message)*. Never raises — callers log *message*.
+    """
+    url = _asset_url()
+    knowledge_root = _knowledge_root(repo_root)
+    try:
+        status, validator = _head_asset(url)
+    except Exception as exc:
+        return False, f"knowledge release HEAD failed: {exc}"
+
+    if status == 404:
+        return False, (
+            f"knowledge release not found at {url} "
+            "(maintainer: run ./update_index.sh)"
+        )
+    if status >= 400:
+        return False, f"knowledge release HEAD returned HTTP {status}"
+
+    local = _read_stamp(repo_root)
+    have_kb = _resolve_kb_path(knowledge_root) is not None
+    if have_kb and validator and validator == local:
+        return False, "Knowledge index is up to date"
+
+    knowledge_root.mkdir(parents=True, exist_ok=True)
+    tar_path = knowledge_root / ".knowledge.tar.gz.partial"
+    staging = knowledge_root / ".staging"
+    try:
+        logger.info("Downloading knowledge index from GitHub Releases")
+        with requests.get(
+            url, stream=True, timeout=_DOWNLOAD_TIMEOUT, headers=_UA,
+        ) as response:
+            if response.status_code >= 400:
+                return False, f"knowledge download returned HTTP {response.status_code}"
+            if not validator:
+                validator = _validator_from_headers(response.headers)
+            with open(tar_path, "wb") as fh:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        fh.write(chunk)
+
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir()
+        with tarfile.open(tar_path, "r:gz") as tar:
+            _safe_extract(tar, staging)
+        _install_extracted(staging, knowledge_root)
+        if validator:
+            _write_stamp(repo_root, validator)
+        return True, "Knowledge index downloaded"
+    except Exception as exc:
+        return False, f"knowledge download failed: {exc}"
+    finally:
+        tar_path.unlink(missing_ok=True)
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def ensure_knowledge(start: Path) -> Path | None:
+    """Download the index if missing. Returns the KB path, or None."""
+    repo_root = _find_repo_root(start) or _find_repo_root(Path(__file__))
+    if repo_root is None:
+        return None
+    changed, message = _sync_knowledge_release(repo_root)
+    if changed:
+        logger.info("%s", message)
+    elif "failed" in message.lower() or "not found" in message.lower() or "HTTP" in message:
+        logger.warning("Auto-update: %s", message)
+    return _resolve_kb_path(_knowledge_root(repo_root))
+
+
 def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
     """Perform the update — called in the background thread."""
     try:
         count_before = len(kb._state.search.issues)
         old_sha = _get_head_sha(repo_root)
 
-        changed, message = _git_pull(repo_root)
-        if not changed:
-            if "failed" in message.lower() or "error" in message.lower() or "timed out" in message.lower():
-                logger.warning("Auto-update: %s", message)
-            else:
+        code_changed = False
+        if _has_remote(repo_root):
+            code_changed, pull_msg = _git_pull(repo_root)
+            if (
+                "failed" in pull_msg.lower()
+                or "error" in pull_msg.lower()
+                or "timed out" in pull_msg.lower()
+            ):
+                logger.warning("Auto-update: %s", pull_msg)
+
+        if code_changed:
+            new_sha = _get_head_sha(repo_root)
+            files = _changed_files(repo_root, old_sha, new_sha) if old_sha and new_sha else []
+            if _has_code_changes(files):
+                logger.info("Code changes detected, restarting server")
+                os._exit(0)
+
+        kb_changed, kb_msg = _sync_knowledge_release(repo_root)
+        if (
+            "failed" in kb_msg.lower()
+            or "not found" in kb_msg.lower()
+            or "HTTP" in kb_msg
+        ):
+            logger.warning("Auto-update: %s", kb_msg)
+
+        if not kb_changed:
+            if not code_changed:
                 logger.info("Knowledge base is up to date (%d issues)", count_before)
             return
 
-        new_sha = _get_head_sha(repo_root)
-        files = _changed_files(repo_root, old_sha, new_sha) if old_sha and new_sha else []
-
-        if _has_code_changes(files):
-            logger.info("Code changes detected, restarting server")
-            os._exit(0)
-
-        kb.reload(kb_path)
+        resolved = _resolve_kb_path(_knowledge_root(repo_root)) or kb_path
+        kb.reload(resolved)
         count_after = len(kb._state.search.issues)
         logger.info(
             "Knowledge base updated: %d -> %d issues",
@@ -177,7 +378,7 @@ def start_auto_update(
     *,
     update_interval_hours: float = 12,
 ) -> None:
-    """Pull latest KB from git now and schedule periodic re-checks.
+    """Pull latest code from git and the issue index from GitHub Releases.
 
     Safe to call unconditionally — silently skips if the KB directory
     is not inside a git repository or has no remote configured.

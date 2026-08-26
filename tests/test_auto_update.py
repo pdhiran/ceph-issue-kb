@@ -16,10 +16,11 @@ from ceph_issue_kb.server.auto_update import (
     _git_pull,
     _has_remote,
     _periodic_loop,
+    _safe_extract,
+    _sync_knowledge_release,
     start_auto_update,
     stop_auto_update,
 )
-
 
 # -- _find_repo_root -------------------------------------------------------
 
@@ -119,29 +120,143 @@ class TestDoUpdate:
 
     def test_no_change(self, tmp_path):
         kb = self._mock_kb()
-        with patch(
-            "ceph_issue_kb.server.auto_update._git_pull",
-            return_value=(False, "Already up to date"),
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
+            patch(
+                "ceph_issue_kb.server.auto_update._git_pull",
+                return_value=(False, "Already up to date"),
+            ),
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(False, "Knowledge index is up to date"),
+            ),
         ):
             _do_update(kb, tmp_path, tmp_path)
         kb.reload.assert_not_called()
 
-    def test_pull_changed_triggers_reload(self, tmp_path):
+    def test_knowledge_sync_triggers_reload(self, tmp_path):
         kb = self._mock_kb()
-        with patch(
-            "ceph_issue_kb.server.auto_update._git_pull",
-            return_value=(True, "Updated"),
+        kb_dir = tmp_path / "knowledge" / "issues-2024-2025"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "ibm-jira").mkdir()
+        (kb_dir / "ibm-jira" / "issues.json").write_text("[]")
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
+            patch(
+                "ceph_issue_kb.server.auto_update._git_pull",
+                return_value=(False, "Already up to date"),
+            ),
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(True, "Knowledge index downloaded"),
+            ),
         ):
             _do_update(kb, tmp_path, tmp_path)
-        kb.reload.assert_called_once_with(tmp_path)
+        kb.reload.assert_called_once()
+
+    def test_code_change_restarts(self, tmp_path):
+        kb = self._mock_kb()
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
+            patch("ceph_issue_kb.server.auto_update._git_pull", return_value=(True, "Updated")),
+            patch("ceph_issue_kb.server.auto_update._get_head_sha", side_effect=["aaa", "bbb"]),
+            patch(
+                "ceph_issue_kb.server.auto_update._changed_files",
+                return_value=["src/ceph_issue_kb/server/auto_update.py"],
+            ),
+            patch("ceph_issue_kb.server.auto_update.os._exit") as mock_exit,
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(False, "Knowledge index is up to date"),
+            ),
+        ):
+            _do_update(kb, tmp_path, tmp_path)
+        mock_exit.assert_called_once_with(0)
+        kb.reload.assert_not_called()
 
     def test_exception_does_not_propagate(self, tmp_path):
         kb = self._mock_kb()
         with patch(
-            "ceph_issue_kb.server.auto_update._git_pull",
+            "ceph_issue_kb.server.auto_update._has_remote",
             side_effect=RuntimeError("boom"),
         ):
             _do_update(kb, tmp_path, tmp_path)
+
+
+# -- _sync_knowledge_release ------------------------------------------------
+
+
+def _write_kb_tar(tar_path: Path) -> None:
+    """Tiny tarball matching the published knowledge/ layout."""
+    import tarfile
+
+    src = tar_path.parent / "src"
+    inner = src / "issues-2024-2025" / "ibm-jira"
+    inner.mkdir(parents=True)
+    (inner / "issues.json").write_text("[]")
+    with tarfile.open(tar_path, "w:gz") as tar:
+        tar.add(src / "issues-2024-2025", arcname="issues-2024-2025")
+
+
+class TestSyncKnowledgeRelease:
+    def test_404_is_not_an_update(self, tmp_path):
+        with patch("ceph_issue_kb.server.auto_update._head_asset", return_value=(404, "")):
+            changed, msg = _sync_knowledge_release(tmp_path)
+        assert changed is False
+        assert "not found" in msg
+
+    def test_matching_etag_skips_download(self, tmp_path):
+        kb_dir = tmp_path / "knowledge" / "issues-2024-2025" / "ibm-jira"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "issues.json").write_text("[]")
+        (tmp_path / "knowledge" / ".release_etag").write_text('"abc"\n')
+        with patch("ceph_issue_kb.server.auto_update._head_asset", return_value=(200, '"abc"')):
+            changed, msg = _sync_knowledge_release(tmp_path)
+        assert changed is False
+        assert "up to date" in msg.lower()
+
+    def test_downloads_when_etag_differs(self, tmp_path):
+        tar_path = tmp_path / "payload.tar.gz"
+        _write_kb_tar(tar_path)
+        payload = tar_path.read_bytes()
+
+        class _Resp:
+            status_code = 200
+            headers = {"ETag": '"new"'}
+
+            def iter_content(self, chunk_size=1):
+                yield payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        with (
+            patch("ceph_issue_kb.server.auto_update._head_asset", return_value=(200, '"new"')),
+            patch("ceph_issue_kb.server.auto_update.requests.get", return_value=_Resp()),
+        ):
+            changed, msg = _sync_knowledge_release(tmp_path)
+        assert changed is True
+        assert (tmp_path / "knowledge" / "issues-2024-2025" / "ibm-jira" / "issues.json").exists()
+        assert (tmp_path / "knowledge" / ".release_etag").read_text().strip() == '"new"'
+
+    def test_rejects_path_escape(self, tmp_path):
+        import io
+        import tarfile
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            info = tarfile.TarInfo(name="../evil")
+            info.size = 0
+            tar.addfile(info)
+        buf.seek(0)
+        with tarfile.open(fileobj=buf, mode="r") as tar:
+            with pytest.raises(ValueError, match="unsafe path"):
+                _safe_extract(tar, dest)
 
 
 # -- _periodic_loop ---------------------------------------------------------
@@ -160,7 +275,14 @@ class TestPeriodicLoop:
             stop.set()
             return False, "Already up to date"
 
-        with patch("ceph_issue_kb.server.auto_update._git_pull", side_effect=counting_pull):
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
+            patch("ceph_issue_kb.server.auto_update._git_pull", side_effect=counting_pull),
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(False, "Knowledge index is up to date"),
+            ),
+        ):
             _periodic_loop(kb, tmp_path, tmp_path, 0.01, stop)
 
         assert call_count >= 1
@@ -202,7 +324,14 @@ class TestStartAutoUpdate:
         kb._state.search.issues = {}
         with (
             patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
-            patch("ceph_issue_kb.server.auto_update._git_pull", return_value=(False, "Already up to date")),
+            patch(
+                "ceph_issue_kb.server.auto_update._git_pull",
+                return_value=(False, "Already up to date"),
+            ),
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(False, "Knowledge index is up to date"),
+            ),
         ):
             start_auto_update(kb, tmp_path, update_interval_hours=0)
             time.sleep(0.1)
@@ -213,7 +342,14 @@ class TestStartAutoUpdate:
         kb._state.search.issues = {}
         with (
             patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
-            patch("ceph_issue_kb.server.auto_update._git_pull", return_value=(False, "Already up to date")),
+            patch(
+                "ceph_issue_kb.server.auto_update._git_pull",
+                return_value=(False, "Already up to date"),
+            ),
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(False, "Knowledge index is up to date"),
+            ),
         ):
             start_auto_update(kb, tmp_path, update_interval_hours=0.0001)
             time.sleep(0.2)
