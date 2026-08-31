@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import threading
 import time
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ceph_issue_kb.server.auto_update import (
+    _UA,
+    DEFAULT_UPDATE_INTERVAL_HOURS,
+    _asset_url,
     _do_update,
     _find_repo_root,
     _git_pull,
@@ -157,6 +162,55 @@ class TestDoUpdate:
             _do_update(kb, tmp_path, tmp_path)
         kb.reload.assert_called_once()
 
+    def test_git_pull_then_release_tarball_reloads(self, tmp_path):
+        """Non-.py git pull still downloads the Release tarball and reloads."""
+        kb = self._mock_kb()
+        order: list[str] = []
+
+        def pull(*_a, **_k):
+            order.append("pull")
+            return True, "Updating abc..def\n1 file changed"
+
+        def sync(*_a, **_k):
+            order.append("sync")
+            return True, "Knowledge index downloaded"
+
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=True),
+            patch("ceph_issue_kb.server.auto_update._git_pull", side_effect=pull),
+            patch(
+                "ceph_issue_kb.server.auto_update._get_head_sha",
+                side_effect=["aaa", "bbb"],
+            ),
+            patch(
+                "ceph_issue_kb.server.auto_update._changed_files",
+                return_value=["README.md"],
+            ),
+            patch("ceph_issue_kb.server.auto_update.os._exit") as mock_exit,
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                side_effect=sync,
+            ),
+        ):
+            _do_update(kb, tmp_path, tmp_path)
+        assert order == ["pull", "sync"]
+        mock_exit.assert_not_called()
+        kb.reload.assert_called_once()
+
+    def test_no_remote_still_syncs_release_tarball(self, tmp_path):
+        kb = self._mock_kb()
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=False),
+            patch("ceph_issue_kb.server.auto_update._git_pull") as mock_pull,
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(True, "Knowledge index downloaded"),
+            ),
+        ):
+            _do_update(kb, tmp_path, tmp_path)
+        mock_pull.assert_not_called()
+        kb.reload.assert_called_once()
+
     def test_code_change_restarts(self, tmp_path):
         kb = self._mock_kb()
         with (
@@ -236,6 +290,17 @@ class TestSyncKnowledgeRelease:
         assert changed is False
         assert "up to date" in msg.lower()
 
+    def test_skips_download_when_local_kb_has_no_stamp(self, tmp_path):
+        live = tmp_path / "knowledge" / "issues-2024-2025" / "ibm-jira"
+        live.mkdir(parents=True)
+        (live / "issues.json").write_text('["local"]')
+        with patch("ceph_issue_kb.server.auto_update._head_asset") as head:
+            changed, msg = _sync_knowledge_release(tmp_path)
+        assert changed is False
+        assert "no release stamp" in msg.lower()
+        head.assert_not_called()
+        assert (live / "issues.json").read_text() == '["local"]'
+
     def test_skips_download_when_indexing_lock_present(self, tmp_path):
         (tmp_path / "knowledge").mkdir()
         (tmp_path / "knowledge" / ".indexing_lock").write_text("1\n")
@@ -278,6 +343,7 @@ class TestSyncKnowledgeRelease:
         live = tmp_path / "knowledge" / "issues-2024-2025" / "ibm-jira"
         live.mkdir(parents=True)
         (live / "issues.json").write_text('["keep-me"]')
+        (tmp_path / "knowledge" / ".release_etag").write_text('"old"\n')
 
         real_extract = _safe_extract
 
@@ -402,6 +468,12 @@ def _cleanup_auto_update():
     stop_auto_update()
 
 
+_IDLE_SYNC = patch(
+    "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+    return_value=(False, "Knowledge index is up to date"),
+)
+
+
 class TestStartAutoUpdate:
     def test_skips_when_no_kb_path_and_no_git(self):
         kb = MagicMock()
@@ -416,6 +488,7 @@ class TestStartAutoUpdate:
         with (
             patch("ceph_issue_kb.server.auto_update._find_repo_root", return_value=tmp_path),
             patch("ceph_issue_kb.server.auto_update._has_remote", return_value=False),
+            _IDLE_SYNC,
         ):
             start_auto_update(kb, None, update_interval_hours=0)
         time.sleep(0.05)
@@ -424,14 +497,31 @@ class TestStartAutoUpdate:
 
     def test_skips_when_not_git_repo(self, tmp_path):
         kb = MagicMock()
-        start_auto_update(kb, tmp_path)
-
-    def test_no_remote_still_starts_trigger(self, tmp_path):
-        (tmp_path / ".git").mkdir()
-        kb = MagicMock()
-        with patch("ceph_issue_kb.server.auto_update._has_remote", return_value=False):
+        with _IDLE_SYNC:
             start_auto_update(kb, tmp_path, update_interval_hours=0)
         time.sleep(0.05)
+        names = [t.name for t in threading.enumerate()]
+        assert "kb-reload-trigger" in names
+
+    def test_no_remote_still_starts_trigger_and_tarball_refresh(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        kb = MagicMock()
+        kb._state.search.issues = {}
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=False),
+            patch("ceph_issue_kb.server.auto_update._git_pull") as mock_pull,
+            patch(
+                "ceph_issue_kb.server.auto_update._sync_knowledge_release",
+                return_value=(True, "Knowledge index downloaded"),
+            ) as mock_sync,
+        ):
+            start_auto_update(kb, tmp_path, update_interval_hours=0)
+            deadline = time.time() + 2.0
+            while time.time() < deadline and not kb.reload.called:
+                time.sleep(0.05)
+        mock_pull.assert_not_called()
+        mock_sync.assert_called()
+        kb.reload.assert_called()
         names = [t.name for t in threading.enumerate()]
         assert "kb-reload-trigger" in names
 
@@ -439,7 +529,10 @@ class TestStartAutoUpdate:
         (tmp_path / ".git").mkdir()
         kb = MagicMock()
         kb._state.search.issues = {}
-        with patch("ceph_issue_kb.server.auto_update._has_remote", return_value=False):
+        with (
+            patch("ceph_issue_kb.server.auto_update._has_remote", return_value=False),
+            _IDLE_SYNC,
+        ):
             start_auto_update(kb, tmp_path, update_interval_hours=0)
             start_auto_update(kb, tmp_path, update_interval_hours=0)
         time.sleep(0.05)
@@ -559,6 +652,34 @@ class TestUpdateIndexScript:
         subprocess.run([str(script), "--reset"], cwd=tmp_path, check=True)
         assert not (tmp_path / ".last_index_update").exists()
 
+    def test_publish_only_does_not_write_last_index_update(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (root / "update_index.sh").read_text()
+        start = text.index('if [[ "${1:-}" == "--publish-only" ]]')
+        end = text.index('# Determine the "since" date')
+        block = text[start:end]
+        assert "LAST_RUN_FILE" not in block
+        assert "touch .reload_trigger" in block
+        assert "publish_knowledge" in block
+        assert "index_issues.py" not in block
+        # Full index+publish path still advances the tracker after publish.
+        after = text[end:]
+        assert after.count("LAST_RUN_FILE") >= 1
+        assert after.index("publish_knowledge") < after.index(
+            'date -v-1d +%Y-%m-%d > "$LAST_RUN_FILE"',
+        )
+
+    def test_last_index_update_writes_yesterday(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (root / "update_index.sh").read_text()
+        docs = (root / "UPDATING.md").read_text()
+        assert 'date -v-1d +%Y-%m-%d > "$LAST_RUN_FILE"' in text
+        assert "1-day overlap" in docs
+        yesterday = subprocess.check_output(
+            ["date", "-v-1d", "+%Y-%m-%d"], text=True,
+        ).strip()
+        assert yesterday == (date.today() - timedelta(days=1)).isoformat()
+
     def test_invalid_since_is_rejected(self):
         from index_issues import _parse_args
 
@@ -579,14 +700,31 @@ class TestUpdateIndexScript:
         mock_load.assert_not_called()
         mock_build.assert_not_called()
 
+    def test_invalid_since_cli_exits_2_before_fetch(self, tmp_path):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, str(root / "index_issues.py"), "--since", "not-a-date"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "not-a-date" in result.stderr
+        assert "Invalid date" in result.stderr
+        assert not (tmp_path / "knowledge").exists()
+        assert "Fetching" not in result.stderr
+        assert "Fetching" not in result.stdout
+
 
 # -- CLI --update-interval integration --------------------------------------
 
 
 class TestCLIUpdateInterval:
     def test_mcp_default_interval_is_12_and_starts_without_kb(self):
+        from ceph_issue_kb.server.auto_update import DEFAULT_UPDATE_INTERVAL_HOURS
         from ceph_issue_kb.server.mcp_server import main
 
+        assert DEFAULT_UPDATE_INTERVAL_HOURS == 12
         with (
             patch("ceph_issue_kb.server.mcp_server.KnowledgeBase") as mock_kb_cls,
             patch("ceph_issue_kb.server.mcp_server._find_kb_path", return_value=None),
@@ -602,37 +740,99 @@ class TestCLIUpdateInterval:
             assert path is not None
             assert mock_start.call_args.kwargs["update_interval_hours"] == 12
 
-    def test_mcp_server_accepts_update_interval(self):
+    def test_mcp_no_auto_update_skips_ensure_knowledge_and_start(self):
         from ceph_issue_kb.server.mcp_server import main
 
-        with patch("ceph_issue_kb.server.mcp_server.KnowledgeBase") as mock_kb_cls:
+        with (
+            patch("ceph_issue_kb.server.mcp_server.KnowledgeBase") as mock_kb_cls,
+            patch("ceph_issue_kb.server.mcp_server._find_kb_path", return_value=None),
+            patch("ceph_issue_kb.server.auto_update.ensure_knowledge") as mock_ensure,
+            patch("ceph_issue_kb.server.auto_update.start_auto_update") as mock_start,
+            patch("ceph_issue_kb.server.mcp_server.create_mcp_server") as mock_create,
+        ):
             mock_kb_cls.empty.return_value = MagicMock()
-            mock_kb_cls.empty.return_value._state.search.issues = {}
-            with (
-                patch("ceph_issue_kb.server.mcp_server._find_kb_path", return_value=None),
-                patch("ceph_issue_kb.server.auto_update.start_auto_update") as mock_start,
-                patch("ceph_issue_kb.server.mcp_server.create_mcp_server") as mock_create,
-            ):
-                mock_mcp = MagicMock()
-                mock_create.return_value = mock_mcp
-                try:
-                    main(["--no-auto-update", "--update-interval", "12"])
-                except SystemExit:
-                    pass
-                mock_start.assert_not_called()
+            mock_create.return_value = MagicMock()
+            main(["--no-auto-update", "--update-interval", "12"])
+            mock_ensure.assert_not_called()
+            mock_start.assert_not_called()
 
-    def test_rest_api_accepts_update_interval(self):
+    def test_mcp_help_no_auto_update_skips_ensure_and_trigger(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, "-m", "ceph_issue_kb.server.mcp_server", "--help"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        compact = " ".join(result.stdout.split()).lower()
+        assert "--no-auto-update" in result.stdout
+        assert "first-run download" in compact
+        assert "trigger watcher" in compact
+
+    def test_rest_default_interval_is_12_and_starts_without_kb(self):
+        from ceph_issue_kb.server.rest_api import main as rest_main
+
         with (
             patch("ceph_issue_kb.server.rest_api.KnowledgeBase") as mock_kb_cls,
             patch("ceph_issue_kb.server.mcp_server._find_kb_path", return_value=None),
+            patch("ceph_issue_kb.server.auto_update.ensure_knowledge", return_value=None),
+            patch("ceph_issue_kb.server.auto_update.start_auto_update") as mock_start,
+            patch("uvicorn.run"),
         ):
             mock_kb_cls.empty.return_value = MagicMock()
-            mock_kb_cls.empty.return_value._state.search.issues = {}
-            from ceph_issue_kb.server.rest_api import main as rest_main
+            rest_main([])
+            mock_start.assert_called_once()
+            assert mock_start.call_args.kwargs["update_interval_hours"] == 12
 
-            parser_args = ["--update-interval", "6", "--no-auto-update"]
-            try:
-                with patch("uvicorn.run"):
-                    rest_main(parser_args)
-            except SystemExit:
-                pass
+    def test_rest_no_auto_update_skips_ensure_knowledge_and_start(self):
+        from ceph_issue_kb.server.rest_api import main as rest_main
+
+        with (
+            patch("ceph_issue_kb.server.rest_api.KnowledgeBase") as mock_kb_cls,
+            patch("ceph_issue_kb.server.mcp_server._find_kb_path", return_value=None),
+            patch("ceph_issue_kb.server.auto_update.ensure_knowledge") as mock_ensure,
+            patch("ceph_issue_kb.server.auto_update.start_auto_update") as mock_start,
+            patch("uvicorn.run"),
+        ):
+            mock_kb_cls.empty.return_value = MagicMock()
+            rest_main(["--update-interval", "6", "--no-auto-update"])
+            mock_ensure.assert_not_called()
+            mock_start.assert_not_called()
+
+
+class TestConsumerReleaseDownload:
+    def test_user_agent_has_no_authorization(self):
+        assert list(_UA.keys()) == ["User-Agent"]
+        assert "Authorization" not in _UA
+
+    def test_asset_url_is_public_github_release(self):
+        url = _asset_url()
+        assert url.startswith("https://github.com/")
+        assert "/releases/download/knowledge/knowledge.tar.gz" in url
+
+    def test_interval_constant_matches_cli_default(self):
+        assert DEFAULT_UPDATE_INTERVAL_HOURS == 12
+
+
+class TestRestDocstringPort:
+    def test_rest_module_docstring_uses_8200_not_9000(self):
+        import ceph_issue_kb.server.rest_api as rest
+
+        doc = rest.__doc__ or ""
+        assert "--port 8200" in doc
+        assert "127.0.0.1:8200" in doc
+        assert "9000" not in doc
+
+
+class TestFastMCPInstructions:
+    def test_does_not_treat_tracker_bugzilla_as_enabled(self):
+        from ceph_issue_kb.server.mcp_server import create_mcp_server
+
+        text = create_mcp_server(MagicMock()).instructions
+        assert "IBM JIRA" in text
+        assert "Red Hat KB" in text
+        assert "connectors are present but disabled" in text
+        assert "JIRA, Ceph Tracker, Red Hat Bugzilla, and Red Hat KB" not in text
+        enabled_clause = text.split("Ceph Tracker")[0]
+        assert "Bugzilla" not in enabled_clause

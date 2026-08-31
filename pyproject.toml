@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ceph-issue-kb"
 version = "0.1.0"
-description = "Ceph Issue Intelligence Knowledge Base — indexes issues from Ceph Tracker, JIRA, Bugzilla, and Red Hat KB"
+description = "Ceph Issue Intelligence Knowledge Base — searchable IBM Ceph JIRA and Red Hat KB issues (Tracker and Bugzilla connectors exist but are disabled)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

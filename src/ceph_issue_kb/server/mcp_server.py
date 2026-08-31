@@ -87,8 +87,9 @@ def create_mcp_server(kb: KnowledgeBase) -> FastMCP:
         instructions=(
             "Engineering issue intelligence for Ceph storage. "
             "Use this MCP when investigating test failures, debugging clusters, "
-            "or searching for known issues, workarounds, and fixes across "
-            "JIRA, Ceph Tracker, Red Hat Bugzilla, and Red Hat KB. "
+            "or searching for known issues, workarounds, and fixes in "
+            "IBM JIRA (IBMCEPH) and Red Hat KB. Ceph Tracker and Bugzilla "
+            "connectors are present but disabled. "
             "Key tools: search_issues, get_issue, find_similar_issue, is_known_issue, "
             "find_workaround, search_stacktrace, search_health_warning."
         ),
@@ -202,6 +203,12 @@ def _silence_stderr_logging() -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from ceph_issue_kb.server.auto_update import (
+        AUTO_UPDATE_CLI_HELP,
+        DEFAULT_UPDATE_INTERVAL_HOURS,
+        UPDATE_INTERVAL_CLI_HELP,
+    )
+
     parser = argparse.ArgumentParser(description="Ceph Issue KB MCP server")
     parser.add_argument(
         "--kb-path",
@@ -224,14 +231,14 @@ def main(argv: list[str] | None = None) -> None:
         "--auto-update",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Auto-update index from GitHub Releases (default: enabled)",
+        help=AUTO_UPDATE_CLI_HELP,
     )
     parser.add_argument(
         "--update-interval",
         type=float,
-        default=12,
+        default=DEFAULT_UPDATE_INTERVAL_HOURS,
         metavar="HOURS",
-        help="Hours between periodic update checks (default: 12, 0=disable periodic)",
+        help=UPDATE_INTERVAL_CLI_HELP,
     )
     args = parser.parse_args(argv)
 

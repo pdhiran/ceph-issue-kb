@@ -149,7 +149,7 @@ Each connector's issues are stored in their own subdirectory. This allows:
 - Incremental updates without reindexing all sources
 - Clear provenance for every issue
 
-The `merged_bm25_index.json` spans all sources for cross-source keyword search. The `relationships.json` tracks cross-source links (e.g., a Ceph Tracker issue linked to a JIRA ticket).
+The `merged_bm25_index.json` spans all sources for cross-source keyword search. The `relationships.json` tracks cross-source links (e.g., a JIRA ticket linked to a Red Hat KB article). Tracker and Bugzilla connectors exist but are not enabled.
 
 ## Connector Framework
 
@@ -284,9 +284,10 @@ WantedBy=multi-user.target
 
 ### Docker
 
+Serving does **not** need JIRA/RHKB tokens. First start downloads the GitHub Release into `knowledge/` (unless `--no-auto-update`, which also skips the trigger watcher).
+
 ```bash
 docker run -d -p 8200:8200 \
-  -e JIRA_USERNAME=... -e JIRA_API_TOKEN=... \
   -v /path/to/knowledge:/app/knowledge \
   ceph-issue-kb
 ```
@@ -369,7 +370,8 @@ The pre-built index is published as a GitHub Release (tag `knowledge`, asset `kn
 # Fetch since a specific date
 ./update_index.sh 2025-06-01
 
-# Re-publish the current knowledge/ without re-indexing
+# Re-publish the current knowledge/ without re-indexing.
+# Does not write .last_index_update (next incremental --since is unchanged).
 ./update_index.sh --publish-only
 ```
 

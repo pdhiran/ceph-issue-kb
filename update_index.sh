@@ -8,7 +8,7 @@
 #   ./update_index.sh 7            # Override: fetch last 7 days
 #   ./update_index.sh 2024-01-01   # Override: fetch since a specific date
 #   ./update_index.sh --reset      # Reset the last-run tracker
-#   ./update_index.sh --publish-only  # Pack + upload the current knowledge/ (no re-index)
+#   ./update_index.sh --publish-only  # Pack + upload current knowledge/ (no fetch; does not write .last_index_update)
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -100,8 +100,10 @@ if [[ "${1:-}" == "--publish-only" ]]; then
     trap 'rm -f "$LOCK_FILE"' EXIT
     publish_knowledge
     touch .reload_trigger
+    # Do not write .last_index_update — this path did not fetch, so the
+    # since-cursor must stay put for the next incremental run.
     echo ""
-    echo "=== Knowledge published (no re-index) ==="
+    echo "=== Knowledge published (no re-index; .last_index_update unchanged) ==="
     exit 0
 fi
 

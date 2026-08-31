@@ -1,6 +1,6 @@
 # Credential Setup Guide
 
-This guide walks you through generating and configuring credentials for the active issue sources.
+This guide walks you through generating and configuring credentials for **re-indexing** from the active issue sources. MCP/REST **consumers** do not need these — they download the GitHub Release via `ensure_knowledge`.
 
 ## Overview
 
@@ -123,7 +123,7 @@ connectors:
 # Load credentials
 source .env && export JIRA_USERNAME JIRA_API_TOKEN RH_OFFLINE_TOKEN
 
-# Index all enabled connectors
+# Index all enabled connectors (merge by entity_id unless --full-rebuild)
 python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
 
 # Or index a single source

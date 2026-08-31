@@ -61,7 +61,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--since",
         type=_iso_date,
         metavar="YYYY-MM-DD",
-        help="Only fetch issues updated since this ISO date (e.g. 2025-01-01)",
+        help=(
+            "Only fetch issues updated since this ISO date (YYYY-MM-DD). "
+            "Invalid dates exit before any fetch or config I/O. "
+            "Merges by entity_id unless --full-rebuild"
+        ),
     )
     parser.add_argument(
         "--output-dir",

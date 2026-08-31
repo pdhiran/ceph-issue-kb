@@ -38,7 +38,10 @@ print(f"  Enabled connectors: {list(cfg.enabled_connectors.keys())}")
 print(f"  Disabled connectors: {[k for k, v in cfg.connectors.items() if not v.enabled]}")
 check("Config has connectors", len(cfg.connectors) > 0)
 check("At least one enabled", len(cfg.enabled_connectors) > 0)
-check("ceph-tracker is enabled", "ceph-tracker" in cfg.enabled_connectors)
+check("ibm-jira is enabled", "ibm-jira" in cfg.enabled_connectors)
+check("redhat-kb is enabled", "redhat-kb" in cfg.enabled_connectors)
+check("ceph-tracker is disabled", "ceph-tracker" not in cfg.enabled_connectors)
+check("redhat-bugzilla is disabled", "redhat-bugzilla" not in cfg.enabled_connectors)
 
 # ---------------------------------------------------------------------------
 # 2. Create connector from each enabled config

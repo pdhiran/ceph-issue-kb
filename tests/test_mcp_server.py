@@ -440,3 +440,15 @@ class TestMCPServerCreation:
 
         server = create_mcp_server(kb)
         assert server is not None
+
+    def test_instructions_do_not_treat_tracker_bugzilla_as_enabled(self, kb):
+        pytest.importorskip("mcp", reason="mcp package not installed")
+        from ceph_issue_kb.server.mcp_server import create_mcp_server
+
+        text = create_mcp_server(kb).instructions
+        assert "IBM JIRA" in text
+        assert "Red Hat KB" in text
+        assert "connectors are present but disabled" in text
+        assert "JIRA, Ceph Tracker, Red Hat Bugzilla, and Red Hat KB" not in text
+        enabled_clause = text.split("Ceph Tracker")[0]
+        assert "Bugzilla" not in enabled_clause

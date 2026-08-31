@@ -6,11 +6,14 @@ is on disk, then:
 
 - If the knowledge-base tarball is newer -> download, extract, hot-reload.
 - If source code (.py) changed via ``git pull --ff-only`` -> ``os._exit(0)``
-  so Cursor restarts the MCP server process with the updated code.
+  so Cursor respawns the MCP subprocess (the IDE stays open).
+- ``./update_index.sh`` touches ``.reload_trigger`` -> in-process reload.
+  The watcher waits while ``knowledge/.indexing_lock`` is held.
 
-A second daemon thread wakes up every *update_interval_hours* (default 12)
-to repeat the check, so long-running processes stay current without
-manual restarts.
+A second daemon thread wakes up every *update_interval_hours* (default
+``DEFAULT_UPDATE_INTERVAL_HOURS``, 12) to repeat the check, so long-running
+processes stay current without manual restarts. MCP and REST argparse
+use the same default.
 
 Every failure path logs a warning and returns — the server is never
 blocked or crashed by this.
@@ -48,6 +51,22 @@ STAMP_NAME = ".release_etag"
 INDEX_LOCK_NAME = ".indexing_lock"
 INDEX_LOCK_STALE_SECONDS = 6 * 3600
 KNOWLEDGE_DIRNAME = "knowledge"
+
+# Shared with MCP and REST argparse so the 12h default cannot drift.
+DEFAULT_UPDATE_INTERVAL_HOURS = 12
+
+AUTO_UPDATE_CLI_HELP = (
+    "If knowledge/ is missing, download the GitHub Release (no JIRA tokens). "
+    "Then git pull + Release refresh on a timer, and watch .reload_trigger "
+    "(default: on). --no-auto-update skips all of these: first-run download, "
+    "periodic update, and the trigger watcher."
+)
+
+UPDATE_INTERVAL_CLI_HELP = (
+    f"Hours between periodic update checks "
+    f"(default: {DEFAULT_UPDATE_INTERVAL_HOURS:g}, 0=disable periodic; "
+    "trigger watcher still runs)"
+)
 
 _UA = {"User-Agent": "ceph-issue-kb"}
 _HEAD_TIMEOUT = 30
@@ -277,6 +296,14 @@ def _sync_knowledge_release(repo_root: Path) -> tuple[bool, str]:
     knowledge_root = _knowledge_root(repo_root)
     if _indexing_in_progress(repo_root):
         return False, "Indexing in progress; skipping release download"
+
+    have_kb = _resolve_kb_path(knowledge_root) is not None
+    local = _read_stamp(repo_root)
+    # Maintainer tree: local index exists but was never a Release install.
+    # Do not replace it with whatever GitHub currently has.
+    if have_kb and not local:
+        return False, "Local index has no release stamp; skipping download"
+
     try:
         status, validator = _head_asset(url)
     except Exception as exc:
@@ -290,8 +317,6 @@ def _sync_knowledge_release(repo_root: Path) -> tuple[bool, str]:
     if status >= 400:
         return False, f"knowledge release HEAD returned HTTP {status}"
 
-    local = _read_stamp(repo_root)
-    have_kb = _resolve_kb_path(knowledge_root) is not None
     if have_kb and validator and validator == local:
         return False, "Knowledge index is up to date"
 
@@ -331,7 +356,11 @@ def _sync_knowledge_release(repo_root: Path) -> tuple[bool, str]:
 
 
 def ensure_knowledge(start: Path) -> Path | None:
-    """Download the index if missing. Returns the KB path, or None."""
+    """Download the index from GitHub Releases if missing.
+
+    Public HTTPS to the ``knowledge`` Release asset only. Does not read
+    JIRA / RHKB tokens. Returns the KB path, or None.
+    """
     repo_root = _find_repo_root(start) or _find_repo_root(Path(__file__))
     if repo_root is None:
         return None
@@ -459,12 +488,15 @@ def start_auto_update(
     kb: KnowledgeBase,
     kb_path: Path | None,
     *,
-    update_interval_hours: float = 12,
+    update_interval_hours: float = DEFAULT_UPDATE_INTERVAL_HOURS,
 ) -> None:
     """Pull latest code from git and the issue index from GitHub Releases.
 
     Always watches ``.reload_trigger`` so ``./update_index.sh`` hot-reloads
-    without restarting Cursor. Git pull still requires a remote.
+    without restarting Cursor. Git pull still requires a remote; the
+    Release tarball refresh does not (knowledge is not in git).
+    Default interval is ``DEFAULT_UPDATE_INTERVAL_HOURS`` (12), matching
+    MCP and REST ``--update-interval``.
 
     If *kb_path* is None (first Release download failed), still start the
     watcher from the git repo so a later periodic check can load the index.
@@ -497,32 +529,37 @@ def start_auto_update(
     stop_event = threading.Event()
     _periodic_stop = stop_event
 
-    if _has_remote(repo_root):
-        thread = threading.Thread(
-            target=_do_update,
-            args=(kb, kb_path, repo_root),
-            daemon=True,
-            name="kb-auto-update",
+    # _do_update skips git pull when there is no remote, then still
+    # refreshes the Release tarball. Knowledge is not stored in git.
+    if not _has_remote(repo_root):
+        logger.debug(
+            "No git remote — skip pull, still refreshing Release tarball "
+            "and watching .reload_trigger",
         )
-        thread.start()
-        _auto_update_threads.append(thread)
 
-        if update_interval_hours > 0:
-            interval_seconds = update_interval_hours * 3600
-            periodic = threading.Thread(
-                target=_periodic_loop,
-                args=(kb, kb_path, repo_root, interval_seconds, stop_event),
-                daemon=True,
-                name="kb-periodic-update",
-            )
-            periodic.start()
-            _auto_update_threads.append(periodic)
-            logger.info(
-                "Scheduled next KB update check in %dh",
-                int(update_interval_hours),
-            )
-    else:
-        logger.debug("No git remote — skip pull, still watching .reload_trigger")
+    thread = threading.Thread(
+        target=_do_update,
+        args=(kb, kb_path, repo_root),
+        daemon=True,
+        name="kb-auto-update",
+    )
+    thread.start()
+    _auto_update_threads.append(thread)
+
+    if update_interval_hours > 0:
+        interval_seconds = update_interval_hours * 3600
+        periodic = threading.Thread(
+            target=_periodic_loop,
+            args=(kb, kb_path, repo_root, interval_seconds, stop_event),
+            daemon=True,
+            name="kb-periodic-update",
+        )
+        periodic.start()
+        _auto_update_threads.append(periodic)
+        logger.info(
+            "Scheduled next KB update check in %dh",
+            int(update_interval_hours),
+        )
 
     trigger = threading.Thread(
         target=_trigger_loop,

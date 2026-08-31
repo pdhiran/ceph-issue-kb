@@ -6,7 +6,7 @@ LangChain, CI pipelines) can query the knowledge base over HTTP.
 Run with::
 
     python -m ceph_issue_kb.server.rest_api
-    python -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 9000
+    python -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
     python -m ceph_issue_kb.server.rest_api --kb-path /data/kb
 
 Default bind: 127.0.0.1:8200
@@ -187,6 +187,12 @@ def create_app(kb: KnowledgeBase) -> Starlette:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from ceph_issue_kb.server.auto_update import (
+        AUTO_UPDATE_CLI_HELP,
+        DEFAULT_UPDATE_INTERVAL_HOURS,
+        UPDATE_INTERVAL_CLI_HELP,
+    )
+
     parser = argparse.ArgumentParser(description="Ceph Issue KB REST API")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8200, help="Bind port (default: 8200)")
@@ -195,14 +201,14 @@ def main(argv: list[str] | None = None) -> None:
         "--auto-update",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Auto-update index from GitHub Releases (default: enabled)",
+        help=AUTO_UPDATE_CLI_HELP,
     )
     parser.add_argument(
         "--update-interval",
         type=float,
-        default=12,
+        default=DEFAULT_UPDATE_INTERVAL_HOURS,
         metavar="HOURS",
-        help="Hours between periodic KB update checks (default: 12, 0=disable periodic)",
+        help=UPDATE_INTERVAL_CLI_HELP,
     )
     args = parser.parse_args(argv)
 

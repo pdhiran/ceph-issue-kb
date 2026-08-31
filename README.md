@@ -64,7 +64,9 @@ Re-indexing from JIRA/RHKB (maintainers only) needs credentials — [CREDENTIALS
 }
 ```
 
-Optional: `"--kb-path", "/path/to/ceph-issue-kb/knowledge/issues-2024-2025"` if auto-detect is wrong. `"--no-auto-update"` disables scheduled Release re-download. Default interval is **12 hours** (cmd-kb and doc-kb default to 1h; this tarball is large). Override with `"--update-interval", "12"`.
+Optional: `"--kb-path", "/path/to/ceph-issue-kb/knowledge/issues-2024-2025"` if auto-detect is wrong.
+
+`"--no-auto-update"` skips **all** of: first-run Release download (`ensure_knowledge`), periodic `git pull` + Release refresh, and the `.reload_trigger` watcher. Default interval is **12 hours** on MCP, REST, and `start_auto_update` (cmd-kb and doc-kb default to 1h; this tarball is large). `"--update-interval", "0"` is startup check only (trigger still watched). Override example: `"--update-interval", "6"`.
 
 Restart Cursor after editing `mcp.json`.
 
@@ -170,10 +172,10 @@ python3 index_issues.py --full-rebuild --verbose
 ./update_index.sh 7               # last 7 days
 ./update_index.sh 2026-08-01      # explicit date
 ./update_index.sh --reset
-./update_index.sh --publish-only  # upload current knowledge/ without fetching
+./update_index.sh --publish-only  # upload current knowledge/ without fetching; does not advance .last_index_update
 ```
 
-`./update_index.sh` refuses to publish if the issue count is below a floor (avoids shipping an empty incremental merge). It writes `.last_index_update` and touches `.reload_trigger` so a running MCP hot-reloads **without restarting Cursor**.
+`./update_index.sh` refuses to publish if the issue count is below a floor (avoids shipping an empty incremental merge). After a successful **index + publish** it writes `.last_index_update` (1-day overlap) and touches `.reload_trigger` so a running MCP hot-reloads **without restarting Cursor**. `--publish-only` touches `.reload_trigger` but **does not** write `.last_index_update`, so the next incremental `--since` is not skipped.
 
 MCP servers that only **consume** the Release do not need JIRA tokens; they pick up new tarballs on auto-update (`git pull` + Release download). A `.py` change exits the MCP subprocess so Cursor respawns it.
 

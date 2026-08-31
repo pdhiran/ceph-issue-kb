@@ -30,20 +30,14 @@ Two integration paths:
 ```bash
 git clone https://github.com/pdhiran/ceph-issue-kb.git
 cd ceph-issue-kb
-pip install -e .
+pip install -e ".[search,server]"
 ```
 
-### 2. Fetch and Index Issues
+### 2. Knowledge index (consumers do not index)
 
-```bash
-# All active sources (requires credentials — see CREDENTIALS.md)
-export JIRA_USERNAME=your_user JIRA_API_TOKEN=your_token
-export RH_OFFLINE_TOKEN=your_token
-python3 index_issues.py --config connectors.yaml --since 2024-01-01 --verbose
+First REST/MCP start calls `ensure_knowledge`, which downloads `knowledge.tar.gz` from the GitHub Release. **No JIRA tokens.** `--no-auto-update` skips that download **and** the `.reload_trigger` watcher.
 
-# Single source only
-python3 index_issues.py --connector ibm-jira --verbose
-```
+Re-indexing from JIRA/RHKB is maintainer-only — [CREDENTIALS.md](CREDENTIALS.md) and [UPDATING.md](UPDATING.md).
 
 ### 3. Start the REST API Server
 
@@ -349,17 +343,17 @@ sudo systemctl status ceph-issue-kb
 FROM python:3.11-slim
 WORKDIR /app
 COPY . .
-RUN pip install -e .
+RUN pip install -e ".[search,server]"
 EXPOSE 8200
 CMD ["python3", "-m", "ceph_issue_kb.server.rest_api", "--host", "0.0.0.0"]
 ```
 
 ```bash
 docker build -t ceph-issue-kb .
-docker run -d -p 8200:8200 --name ceph-issue-kb \
-  -e JIRA_USERNAME=... -e JIRA_API_TOKEN=... \
-  ceph-issue-kb
+docker run -d -p 8200:8200 --name ceph-issue-kb ceph-issue-kb
 ```
+
+Do **not** pass `JIRA_USERNAME` / `JIRA_API_TOKEN` into the serving container. The API downloads the Release (or you mount `knowledge/`).
 
 ### Kubernetes
 
@@ -383,9 +377,6 @@ spec:
         image: ceph-issue-kb:latest
         ports:
         - containerPort: 8200
-        envFrom:
-        - secretRef:
-            name: ceph-issue-kb-credentials
         livenessProbe:
           httpGet:
             path: /health
@@ -440,9 +431,9 @@ You have access to the Ceph Issue Intelligence KB. Use it as follows:
 - Check knowledge base exists: `ls knowledge/issues-2024-2025/`
 
 ### No issues found
-- Verify connectors are configured: `cat connectors.yaml`
-- Run indexer: `python3 index_issues.py --connector ibm-jira --verbose`
-- Check connector health: `curl http://localhost:8200/health`
+- Confirm `knowledge/issues-2024-2025/` exists (Release download on first start). `--no-auto-update` skips `ensure_knowledge` **and** the trigger watcher.
+- `curl http://localhost:8200/health`
+- Maintainers re-index with credentials — see [UPDATING.md](UPDATING.md). Do not run the indexer to "fix" a consumer install.
 
 ### Slow responses
 - First request loads the index into memory (may take 5-10 seconds for large indices)
@@ -451,7 +442,7 @@ You have access to the Ceph Issue Intelligence KB. Use it as follows:
 
 ## Security Considerations
 
-The REST API serves indexed issue data that may include confidential content from IBM JIRA and Red Hat Bugzilla. Keep the following in mind:
+The REST API serves indexed issue data that may include confidential content from IBM JIRA and Red Hat KB. Keep the following in mind:
 
 - **Default bind address**: The REST API should default to `127.0.0.1`, not `0.0.0.0`. Only bind to `0.0.0.0` when behind a reverse proxy or in a trusted network.
 - **Authentication**: Production deployments should add authentication in front of the API — an API key, a reverse proxy with auth (e.g., nginx + OAuth), or mTLS.
