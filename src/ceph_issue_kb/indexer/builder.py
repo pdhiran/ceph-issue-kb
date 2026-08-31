@@ -24,6 +24,54 @@ from ceph_issue_kb.models import NormalizedIssue
 logger = logging.getLogger(__name__)
 
 
+_COLLAPSE_RATIO = 0.5
+_COLLAPSE_MIN_PREV = 1000
+
+
+def _count_issues(output: Path, skip: Path | None = None) -> int:
+    """Count issues.json records under *output*, optionally skipping one file."""
+    total = 0
+    skip_resolved = skip.resolve() if skip is not None else None
+    for path in output.glob("*/issues.json"):
+        if skip_resolved is not None and path.resolve() == skip_resolved:
+            continue
+        try:
+            total += len(json.loads(path.read_text()))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return total
+
+
+def _previous_total(output: Path) -> int:
+    """Last successful build size from metadata.json, or 0."""
+    meta_file = output / "metadata.json"
+    if not meta_file.exists():
+        return 0
+    try:
+        return int(json.loads(meta_file.read_text()).get("total_issues", 0) or 0)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return 0
+
+
+def _assert_disk_not_collapsed(output: Path) -> None:
+    """Refuse incremental updates when on-disk issue count has collapsed.
+
+    Catches the failure mode where ``ibm-jira/issues.json`` is missing (or
+    empty) after a gitignore / LFS / auto-update extract glitch, so a
+    ``--since`` fetch would replace the corpus with a few hundred issues.
+    """
+    prev = _previous_total(output)
+    if prev < _COLLAPSE_MIN_PREV:
+        return
+    disk = _count_issues(output)
+    if disk < prev * _COLLAPSE_RATIO:
+        raise RuntimeError(
+            f"On-disk index has {disk} issues but last build had {prev}. "
+            "Refusing incremental update to avoid data loss. "
+            "Restore knowledge/ or pass --full-rebuild."
+        )
+
+
 def build_index(
     config: Config,
     output_dir: str | Path,
@@ -48,6 +96,9 @@ def build_index(
     """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
+
+    if not full_rebuild:
+        _assert_disk_not_collapsed(output)
 
     per_source: dict[str, list[NormalizedIssue]] = {}
     stats: dict[str, Any] = {}
@@ -128,6 +179,14 @@ def _write_per_source(
         if not full_rebuild and existing_file.exists():
             data = json.loads(existing_file.read_text())
             existing = {issue["entity_id"]: issue for issue in data}
+        elif not full_rebuild and _previous_total(output) >= _COLLAPSE_MIN_PREV:
+            sibling_n = _count_issues(output, skip=existing_file)
+            if sibling_n >= 100:
+                raise RuntimeError(
+                    f"Refusing incremental update for {source_name}: "
+                    f"{existing_file} is missing while {sibling_n} issues exist "
+                    f"in other sources. Restore the file or pass --full-rebuild."
+                )
 
         for issue in new_issues:
             d = _issue_to_dict(issue)

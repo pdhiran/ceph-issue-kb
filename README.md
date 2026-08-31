@@ -1,24 +1,56 @@
 # Ceph Issue Intelligence KB
 
-Searchable knowledge base of **18,000+ Ceph issues** from IBM Ceph JIRA and Red Hat KB. Clone, install, and start the MCP server — it downloads the pre-built index from GitHub Releases on first run.
+Searchable knowledge base of **18,000+ Ceph issues** from IBM Ceph JIRA and Red Hat Knowledge Base. Clone, install, start the MCP — it downloads the pre-built index from GitHub Releases on first run.
+
+Use this MCP when investigating **failures, crashes, HEALTH_WARN, stacktraces, workarounds, and duplicates**. Do not use it to invent CLI (that is **ceph-cmd-kb**) or to walk IBM upgrade docs (that is **ceph-doc-kb**).
+
+## For agents (read this first)
+
+| Do | Do not |
+|---|---|
+| `is_known_issue` on a raw assert / traceback before filing a bug | File a new JIRA without searching here first |
+| `search_stacktrace` / `search_health_warning` for those shapes | Paste huge logs into `search_issues` — extract the assert or backtrace first |
+| `get_issue` after you have an `entity_id` or `IBMCEPH-xxxxx` | Treat “no hit” as “not a product bug” — the index lags JIRA by up to a day |
+| `find_workaround` / `find_fix` when the user needs a path forward | Use this for prio-list *tracking* workflow — **ceph-prio-hub** |
+
+**Typical first calls**
+
+1. `health()` — confirm index loaded (issue counts per source).
+2. Exact error → `is_known_issue(error_message="...", version="19.2.0")`.
+3. Fuzzy problem → `find_similar_issue(description="...", component="rados")`.
+4. Then `get_issue(issue_id)` for comments, stacktraces, links.
+
+Pass `version` on `is_known_issue` / `search_issues` when the cluster version is known (filters affected versions).
+
+The served index is the GitHub Release asset, not git. Maintainers publish with `./update_index.sh`. Clients auto-download on MCP start.
+
+## Ceph Engineering Intelligence Platform
+
+| MCP | Cursor key | Use when | SSE | REST |
+|-----|------------|----------|-----|------|
+| **ceph-cmd-kb** | `ceph-cmd-kb` | Verify CLI, flags, configs | 8081 | 9090 |
+| **ceph-doc-kb** | `ceph-doc-kb` | How-to, architecture, IBM procedures | 8082 | 8100 |
+| **ceph-issue-kb** | `ceph-issue-kb` | Known bugs, workarounds, stacktraces | 8083 | 8200 |
+| **ceph-prio-hub** | `ceph-prio-hub` | Customer prio-list / L3 tracking | 8080 | — |
+| **cephci-kb** | `cephci-kb` | CephCI code, tests, workflows | 8084 | — |
+
+After a hit here, verify any suggested CLI with **ceph-cmd-kb** and read procedure from **ceph-doc-kb**. For L3 customer tracking, hand off to **ceph-prio-hub**.
 
 ## Setup
-
-### 1. Clone and install
 
 ```bash
 git clone https://github.com/pdhiran/ceph-issue-kb.git
 cd ceph-issue-kb
-pip install -e .
+pip install -e ".[search,server]"
 ```
 
-### 2. Connect your agent
+First MCP/REST start downloads `knowledge.tar.gz` from the `knowledge` GitHub Release if `knowledge/issues-2024-2025/` is missing.
 
-Choose the integration that matches your agent:
+Re-indexing from JIRA/RHKB (maintainers only) needs credentials — [CREDENTIALS.md](CREDENTIALS.md). Serving does **not**.
 
----
+## Incorporate into an agent
 
-**Cursor** — add to `~/.cursor/mcp.json`:
+### Cursor (stdio)
 
 ```json
 {
@@ -32,45 +64,15 @@ Choose the integration that matches your agent:
 }
 ```
 
-Restart Cursor. The MCP server starts automatically, downloads the issue index from GitHub Releases if needed, and checks for updates on a schedule — no manual `git pull` needed.
+Optional: `"--kb-path", "/path/to/ceph-issue-kb/knowledge/issues-2024-2025"` if auto-detect is wrong. `"--no-auto-update"` disables scheduled Release re-download.
 
-To disable auto-update, add `"--no-auto-update"` to `args`.
+Restart Cursor after editing `mcp.json`.
 
----
-
-**Claude Desktop** — start the server, then add to `claude_desktop_config.json`:
+### SSE
 
 ```bash
-python -m ceph_issue_kb.server.mcp_server --transport sse --port 8083
+python3 -m ceph_issue_kb.server.mcp_server --transport sse --port 8083
 ```
-
-```json
-{
-  "mcpServers": {
-    "ceph-issue-kb": { "url": "http://localhost:8083/sse" }
-  }
-}
-```
-
----
-
-**Continue / Cline / Windsurf** — start the server and point to the SSE endpoint:
-
-```bash
-python -m ceph_issue_kb.server.mcp_server --transport sse --port 8083
-```
-
-Connect to `http://localhost:8083/sse` in the tool's MCP settings.
-
----
-
-**IBM Bob** — Bob supports MCP over SSE natively:
-
-```bash
-python -m ceph_issue_kb.server.mcp_server --transport sse --host 0.0.0.0 --port 8083
-```
-
-Add to Bob's `.bob/mcp.json`:
 
 ```json
 {
@@ -83,123 +85,113 @@ Add to Bob's `.bob/mcp.json`:
 }
 ```
 
-If running on a shared server, replace `localhost` with the hostname.
-
----
-
-**REST API** — for LangChain, CrewAI, or CI pipelines:
+### REST
 
 ```bash
-python -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
+python3 -m ceph_issue_kb.server.rest_api --host 0.0.0.0 --port 8200
 ```
 
 ```bash
-# Search issues
 curl -X POST http://localhost:8200/api/search_issues \
   -H "Content-Type: application/json" \
   -d '{"query": "OSD slow ops", "component": "rados"}'
 
-# Check if an error is a known issue
 curl -X POST http://localhost:8200/api/is_known_issue \
   -H "Content-Type: application/json" \
   -d '{"error_message": "FAILED ceph_assert(googly > 0)", "version": "19.2.0"}'
 
-# Find workaround
 curl -X POST http://localhost:8200/api/find_workaround \
   -H "Content-Type: application/json" \
   -d '{"query": "too many PGs per OSD"}'
 
-# Health check
 curl http://localhost:8200/health
 ```
 
-See [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md) for the full REST API reference and agent integration examples.
+Full REST and agent wrappers: [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md).
 
-### 3. Use it
+## Tool catalog
 
-Once connected, agents automatically check for known Ceph issues. You can also ask directly:
+| Tool | Args | When to call |
+|------|------|----------------|
+| `search_issues` | `query`, optional `source`, `component`, `version`, `status`, `limit=10` | Broad search. `source`: connector name (e.g. ibm-jira). |
+| `get_issue` | `issue_id` (`entity_id` hex or `IBMCEPH-16205`) | Full description + comments |
+| `find_similar_issue` | `description`, optional `stacktrace`, `component` | Semantic similar-bug |
+| `is_known_issue` | `error_message`, optional `version` | Exact-ish known-issue check |
+| `find_workaround` | `query` (issue id or text) | Known workarounds |
+| `find_fix` | `query` | Commits / PRs / fix notes |
+| `find_related_issues` | `issue_id` | Duplicate / linked |
+| `search_stacktrace` | `stacktrace` | Backtrace similarity |
+| `search_health_warning` | `warning` | HEALTH_WARN / HEALTH_ERR text |
+| `hot_issues` | optional `component`, `limit=10` | Recently updated |
+| `component_health` | `component` | Open criticals / regressions / blockers |
+| `capabilities` | (none) | Sources and entity types |
+| `health` | (none) | Connector/index counts |
 
-- *"Is `FAILED ceph_assert(googly > 0)` a known issue?"*
-- *"Find workarounds for OSD slow ops during recovery"*
-- *"Search for issues related to HEALTH_WARN too many PGs per OSD"*
-- *"What are the hot issues in the rgw component?"*
-- *"Find issues with this stacktrace: `#0 in BlueStore::_do_write`"*
+### Active sources
 
-## Available Tools
+| Source | Role |
+|--------|------|
+| IBM Ceph JIRA (`ibm-jira`) | Internal tracker (majority of the index) |
+| Red Hat KB (`redhat-kb`) | Customer-facing articles |
 
-| Tool | Description |
-|------|-------------|
-| `search_issues` | Search issues across all sources with optional filters |
-| `get_issue` | Get full issue details including description and all comments |
-| `find_similar_issue` | Find issues similar to a given problem description |
-| `is_known_issue` | Check if an error message matches a known issue |
-| `find_workaround` | Search for known workarounds |
-| `find_fix` | Search for known fixes, commits, PRs |
-| `find_related_issues` | Get related/duplicate/linked issues |
-| `search_stacktrace` | Find issues with similar stacktraces |
-| `search_health_warning` | Find issues related to a health warning |
-| `hot_issues` | Most active recent issues by component |
-| `component_health` | Open criticals, regressions, blockers for a component |
-| `capabilities` | Server capabilities and entity types |
-| `health` | Connector status, issue counts, index status |
+Connectors exist for Ceph Tracker (Redmine) and Bugzilla but are **disabled** in `connectors.yaml` until those pipelines are turned on.
 
-## Active Sources
+### Agent workflow: crash during a test
 
-| Source | Issues | Description |
-|--------|--------|-------------|
-| IBM Ceph JIRA | 14,037 | Internal Ceph bug tracker and feature requests |
-| Red Hat KB | 600 | Customer-facing knowledge base articles |
+1. Extract assert line or `#0` frames from the log — do not dump the whole journal.
+2. `is_known_issue(error_message=<assert>, version=<cluster>)`
+3. If weak: `search_stacktrace(stacktrace=<frames>)` then `find_similar_issue`.
+4. `get_issue` on the best `source_id`.
+5. `find_workaround` / `find_fix` if the user needs a path.
+6. If filing IBMCEPH: still follow the bug-filing skill; mention this hit as related.
 
-The knowledge base is updated daily by the maintainer with the latest bugs and articles. Your MCP server automatically downloads the latest index from GitHub Releases — no action needed on your part.
+### Agent workflow: HEALTH_WARN
 
-## VS Code Extension
+1. `search_health_warning(warning="too many PGs per OSD")`
+2. `find_workaround` on the same text.
+3. Confirm remediation CLI with **ceph-cmd-kb**.
 
-Coming soon. See [ceph-doc-kb](https://github.com/pdhiran/ceph-doc-kb) and [ceph-command-kb](https://github.com/pdhiran/ceph-command-kb) for existing VS Code extensions that complement this knowledge base.
+## Updating the knowledge base
 
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [SPEC.md](SPEC.md) | MCP platform contract and entity schema |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Architecture, source tree, maintainer guide |
-| [CREDENTIALS.md](CREDENTIALS.md) | Credential setup for re-indexing sources |
-| [BOB_INTEGRATION_GUIDE.md](BOB_INTEGRATION_GUIDE.md) | REST API reference, agent integration, deployment |
-
-## Running All Ceph MCPs Together
-
-Three specialized MCPs work together as the Ceph Engineering Intelligence Platform:
-
-| MCP | Purpose | SSE Port | Repo |
-|-----|---------|----------|------|
-| **ceph-cmd-kb** | Commands, configs, test validation | 8081 | [ceph-command-kb](https://github.com/pdhiran/ceph-command-kb) |
-| **ceph-doc-kb** | Documentation search, code examples | 8082 | [ceph-doc-kb](https://github.com/pdhiran/ceph-document-kb) |
-| **ceph-issue-kb** | Known issues, workarounds, fixes | 8083 | [ceph-issue-kb](https://github.com/pdhiran/ceph-issue-kb) |
-
-Start all three for SSE clients (Bob, Claude Desktop, etc.):
+Same `--since YYYY-MM-DD` contract used by the other KBs. This repo is the original: fetch issues **updated since that date**, **merge** by `entity_id`, rebuild BM25 + FAISS.
 
 ```bash
-python -m ceph_command_kb.server.mcp_server --transport sse --port 8081 &
-python -m ceph_doc_kb.server.mcp_server --transport sse --port 8082 &
-python -m ceph_issue_kb.server.mcp_server --transport sse --port 8083 &
+# Maintainer: credentials in .env (JIRA_USERNAME, JIRA_API_TOKEN, RH_OFFLINE_TOKEN)
+python3 index_issues.py --config connectors.yaml --since 2026-08-01 --verbose
+
+# Single connector
+python3 index_issues.py --connector ibm-jira --since 2026-08-01 --verbose
+
+# Full rebuild (overwrites; do not use for daily delta)
+python3 index_issues.py --full-rebuild --verbose
+
+# Smart wrapper: last-run tracker + pack + GitHub Release upload
+./update_index.sh                 # since last successful run, or last 1 day
+./update_index.sh 7               # last 7 days
+./update_index.sh 2026-08-01      # explicit date
+./update_index.sh --reset
+./update_index.sh --publish-only  # upload current knowledge/ without fetching
 ```
 
-Combined agent config (`.bob/mcp.json`, `claude_desktop_config.json`, etc.):
+`./update_index.sh` refuses to publish if the issue count is below a floor (avoids shipping an empty incremental merge). It writes `.last_index_update` and touches `.reload_trigger` so a running MCP hot-reloads.
 
-```json
-{
-  "mcpServers": {
-    "ceph-cmd-kb": { "url": "http://localhost:8081/sse", "transport": "sse" },
-    "ceph-doc-kb": { "url": "http://localhost:8082/sse", "transport": "sse" },
-    "ceph-issue-kb": { "url": "http://localhost:8083/sse", "transport": "sse" }
-  }
-}
+MCP servers that only **consume** the Release do not need JIRA tokens; they pick up new tarballs on auto-update.
+
+Layout: `knowledge/issues-2024-2025/<source>/issues.json` plus shared BM25/FAISS artefacts. Not stored in git — see [knowledge/README.md](knowledge/README.md).
+
+## Architecture
+
 ```
+JIRA / RHKB connectors → normalize + sanitize → merge by entity_id
+        → BM25 + per-source FAISS → knowledge/
+                → MCP / REST (KnowledgeBase facade)
+```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md), [SPEC.md](SPEC.md), [CREDENTIALS.md](CREDENTIALS.md).
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[all]"
 pytest
 ```
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture details and contributing.

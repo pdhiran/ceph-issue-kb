@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import tarfile
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -40,6 +41,8 @@ DEFAULT_RELEASE_REPO = os.environ.get("CEPH_ISSUE_KB_RELEASE_REPO", "pdhiran/cep
 RELEASE_TAG = "knowledge"
 ASSET_NAME = "knowledge.tar.gz"
 STAMP_NAME = ".release_etag"
+INDEX_LOCK_NAME = ".indexing_lock"
+INDEX_LOCK_STALE_SECONDS = 6 * 3600
 KNOWLEDGE_DIRNAME = "knowledge"
 
 _UA = {"User-Agent": "ceph-issue-kb"}
@@ -147,6 +150,23 @@ def _stamp_path(repo_root: Path) -> Path:
     return _knowledge_root(repo_root) / STAMP_NAME
 
 
+def _indexing_in_progress(repo_root: Path) -> bool:
+    """True when the maintainer indexer holds knowledge/.indexing_lock."""
+    lock = _knowledge_root(repo_root) / INDEX_LOCK_NAME
+    if not lock.exists():
+        return False
+    try:
+        age = time.time() - lock.stat().st_mtime
+    except OSError:
+        return False
+    if age > INDEX_LOCK_STALE_SECONDS:
+        logger.warning(
+            "Ignoring stale indexing lock (%.0fh old)", age / 3600,
+        )
+        return False
+    return True
+
+
 def _asset_url(repo: str | None = None) -> str:
     slug = repo or DEFAULT_RELEASE_REPO
     return f"https://github.com/{slug}/releases/download/{RELEASE_TAG}/{ASSET_NAME}"
@@ -227,6 +247,10 @@ def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
 
 def _install_extracted(staging: Path, knowledge_root: Path) -> None:
     """Move extracted archive members into *knowledge_root*, replacing existing."""
+    if _indexing_in_progress(knowledge_root.parent):
+        raise RuntimeError(
+            "indexing lock present; refusing to replace knowledge/"
+        )
     knowledge_root.mkdir(parents=True, exist_ok=True)
     for child in staging.iterdir():
         if child.name in {STAMP_NAME, ".staging"}:
@@ -247,6 +271,8 @@ def _sync_knowledge_release(repo_root: Path) -> tuple[bool, str]:
     """
     url = _asset_url()
     knowledge_root = _knowledge_root(repo_root)
+    if _indexing_in_progress(repo_root):
+        return False, "Indexing in progress; skipping release download"
     try:
         status, validator = _head_asset(url)
     except Exception as exc:
@@ -287,6 +313,8 @@ def _sync_knowledge_release(repo_root: Path) -> tuple[bool, str]:
         staging.mkdir()
         with tarfile.open(tar_path, "r:gz") as tar:
             _safe_extract(tar, staging)
+        if _indexing_in_progress(repo_root):
+            return False, "Indexing started during download; aborting install"
         _install_extracted(staging, knowledge_root)
         if validator:
             _write_stamp(repo_root, validator)

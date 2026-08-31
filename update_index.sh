@@ -16,6 +16,7 @@ cd "$(dirname "$0")"
 LAST_RUN_FILE=".last_index_update"
 RELEASE_TAG="knowledge"
 ASSET_NAME="knowledge.tar.gz"
+LOCK_FILE="knowledge/.indexing_lock"
 
 # Load credentials
 if [ -f .env ]; then
@@ -44,11 +45,28 @@ publish_knowledge() {
     echo "Checking knowledge/ for unsanitized customer data..."
     python3 scripts/sanitize_issues.py --check
 
+    TOTAL=$(python3 -c "
+import json
+from pathlib import Path
+root = Path('knowledge/issues-2024-2025')
+n = 0
+for p in root.glob('*/issues.json'):
+    n += len(json.loads(p.read_text()))
+print(n)
+")
+    MIN_ISSUES="${MIN_ISSUES:-10000}"
+    if [ "$TOTAL" -lt "$MIN_ISSUES" ]; then
+        echo "error: refusing to publish $TOTAL issues (floor is $MIN_ISSUES)." >&2
+        echo "error: incremental merge likely started from an empty ibm-jira/issues.json." >&2
+        echo "error: restore knowledge/ and re-run, or override with MIN_ISSUES=0" >&2
+        exit 1
+    fi
+
     STAGING=$(mktemp -d)
     TAR="$STAGING/$ASSET_NAME"
     trap 'rm -rf "$STAGING"' RETURN
 
-    echo "Packing knowledge/ -> $ASSET_NAME"
+    echo "Packing knowledge/ -> $ASSET_NAME ($TOTAL issues)"
     COPYFILE_DISABLE=1 tar -czf "$TAR" \
         -C knowledge \
         --exclude='.release_etag' \
@@ -60,13 +78,7 @@ publish_knowledge() {
     SIZE=$(du -h "$TAR" | awk '{print $1}')
     echo "Archive size: $SIZE"
 
-    NOTES="Pre-built issue index ($(date -u +%Y-%m-%d))"
-    if [ -f knowledge/issues-2024-2025/metadata.json ]; then
-        TOTAL=$(python3 -c "import json; print(json.load(open('knowledge/issues-2024-2025/metadata.json'))['total_issues'])" 2>/dev/null || true)
-        if [ -n "${TOTAL:-}" ]; then
-            NOTES="Pre-built issue index: ${TOTAL} issues ($(date -u +%Y-%m-%d))"
-        fi
-    fi
+    NOTES="Pre-built issue index: ${TOTAL} issues ($(date -u +%Y-%m-%d))"
 
     if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
         echo "Uploading $ASSET_NAME to existing release '$RELEASE_TAG' (replacing previous asset)"
@@ -83,6 +95,9 @@ publish_knowledge() {
 }
 
 if [[ "${1:-}" == "--publish-only" ]]; then
+    mkdir -p knowledge
+    echo $$ > "$LOCK_FILE"
+    trap 'rm -f "$LOCK_FILE"' EXIT
     publish_knowledge
     touch .reload_trigger
     echo ""
@@ -113,16 +128,20 @@ echo "=== Ceph Issue KB Index Update ==="
 echo "Fetching issues updated since: $SINCE"
 echo ""
 
+mkdir -p knowledge
+echo $$ > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
+
 # Run the indexer
 python3 index_issues.py --config connectors.yaml --since "$SINCE" --verbose
 
 # Signal MCP server to hot-reload (picked up within 5s by the trigger watcher)
 touch .reload_trigger
 
-# Save yesterday's date for 1-day overlap buffer (prevents edge-case misses)
-date -v-1d +%Y-%m-%d > "$LAST_RUN_FILE" 2>/dev/null || date -d "1 day ago" +%Y-%m-%d > "$LAST_RUN_FILE"
-
 publish_knowledge
+
+# Only advance the since-cursor after a successful publish
+date -v-1d +%Y-%m-%d > "$LAST_RUN_FILE" 2>/dev/null || date -d "1 day ago" +%Y-%m-%d > "$LAST_RUN_FILE"
 
 echo ""
 echo "=== Index updated and published ==="

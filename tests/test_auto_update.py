@@ -15,6 +15,8 @@ from ceph_issue_kb.server.auto_update import (
     _find_repo_root,
     _git_pull,
     _has_remote,
+    _indexing_in_progress,
+    _install_extracted,
     _periodic_loop,
     _safe_extract,
     _sync_knowledge_release,
@@ -214,6 +216,78 @@ class TestSyncKnowledgeRelease:
             changed, msg = _sync_knowledge_release(tmp_path)
         assert changed is False
         assert "up to date" in msg.lower()
+
+    def test_skips_download_when_indexing_lock_present(self, tmp_path):
+        (tmp_path / "knowledge").mkdir()
+        (tmp_path / "knowledge" / ".indexing_lock").write_text("1\n")
+        with patch("ceph_issue_kb.server.auto_update._head_asset") as head:
+            changed, msg = _sync_knowledge_release(tmp_path)
+        assert changed is False
+        assert "Indexing in progress" in msg
+        head.assert_not_called()
+
+    def test_stale_indexing_lock_is_ignored(self, tmp_path):
+        import os
+
+        lock = tmp_path / "knowledge" / ".indexing_lock"
+        lock.parent.mkdir()
+        lock.write_text("1\n")
+        old = time.time() - 7 * 3600
+        os.utime(lock, (old, old))
+        assert _indexing_in_progress(tmp_path) is False
+        with patch("ceph_issue_kb.server.auto_update._head_asset", return_value=(404, "")):
+            changed, msg = _sync_knowledge_release(tmp_path)
+        assert "not found" in msg
+
+    def test_install_extracted_refuses_when_locked(self, tmp_path):
+        knowledge = tmp_path / "knowledge"
+        live = knowledge / "issues-2024-2025" / "ibm-jira"
+        live.mkdir(parents=True)
+        (live / "issues.json").write_text('["keep-me"]')
+        (knowledge / ".indexing_lock").write_text("1\n")
+        staging = tmp_path / "staging"
+        (staging / "issues-2024-2025").mkdir(parents=True)
+        with pytest.raises(RuntimeError, match="indexing lock"):
+            _install_extracted(staging, knowledge)
+        assert (live / "issues.json").read_text() == '["keep-me"]'
+
+    def test_aborts_install_if_lock_appears_during_download(self, tmp_path):
+        tar_path = tmp_path / "payload.tar.gz"
+        _write_kb_tar(tar_path)
+        payload = tar_path.read_bytes()
+
+        live = tmp_path / "knowledge" / "issues-2024-2025" / "ibm-jira"
+        live.mkdir(parents=True)
+        (live / "issues.json").write_text('["keep-me"]')
+
+        real_extract = _safe_extract
+
+        def extract_then_lock(tar, dest):
+            (tmp_path / "knowledge" / ".indexing_lock").write_text("1\n")
+            real_extract(tar, dest)
+
+        class _Resp:
+            status_code = 200
+            headers = {"ETag": '"new"'}
+
+            def iter_content(self, chunk_size=1):
+                yield payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        with (
+            patch("ceph_issue_kb.server.auto_update._head_asset", return_value=(200, '"new"')),
+            patch("ceph_issue_kb.server.auto_update.requests.get", return_value=_Resp()),
+            patch("ceph_issue_kb.server.auto_update._safe_extract", side_effect=extract_then_lock),
+        ):
+            changed, msg = _sync_knowledge_release(tmp_path)
+        assert changed is False
+        assert "aborting install" in msg.lower()
+        assert (live / "issues.json").read_text() == '["keep-me"]'
 
     def test_downloads_when_etag_differs(self, tmp_path):
         tar_path = tmp_path / "payload.tar.gz"

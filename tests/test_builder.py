@@ -322,6 +322,39 @@ class TestBuildIndex:
             # full_rebuild: only the 1 fetched issue, existing 3 discarded
             assert len(issues_data) == 1
 
+    def test_incremental_refuses_missing_file_when_siblings_have_data(self, tmp_path):
+        """Missing issues.json + populated sibling + prior metadata = data loss."""
+        from ceph_issue_kb.indexer.builder import _write_per_source
+
+        sibling = tmp_path / "redhat-kb"
+        sibling.mkdir()
+        (sibling / "issues.json").write_text(
+            json.dumps([
+                _make_issue_dict("redhat-kb", str(i), f"title-{i}")
+                for i in range(100)
+            ])
+        )
+        (tmp_path / "metadata.json").write_text(json.dumps({"total_issues": 15000}))
+
+        with pytest.raises(RuntimeError, match="missing"):
+            _write_per_source({"ibm-jira": []}, tmp_path)
+
+    def test_first_build_allows_missing_source_without_metadata(self, tmp_path):
+        """First-ever index has no metadata; a missing sibling source is OK."""
+        from ceph_issue_kb.indexer.builder import _write_per_source
+
+        sibling = tmp_path / "redhat-kb"
+        sibling.mkdir()
+        (sibling / "issues.json").write_text(
+            json.dumps([
+                _make_issue_dict("redhat-kb", str(i), f"title-{i}")
+                for i in range(100)
+            ])
+        )
+
+        _write_per_source({"ibm-jira": []}, tmp_path)
+        assert (tmp_path / "ibm-jira" / "issues.json").exists()
+
     def test_embedding_cache_created_on_first_build(self):
         """First build creates embedding cache files alongside FAISS index."""
         rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
@@ -456,3 +489,153 @@ class TestBuildIndex:
                 (Path(tmpdir) / "redhat-bugzilla" / "issues.json").read_text()
             )
             assert issues_data[0]["source"] == "redhat-bugzilla"
+
+
+class TestIndexSafetyWorkflows:
+    """Mocked maintainer workflows for the Aug 31 data-loss failure mode."""
+
+    def _seed(self, root: Path, *, jira: int, rhkb: int, meta_total: int | None):
+        if jira:
+            d = root / "ibm-jira"
+            d.mkdir(parents=True)
+            (d / "issues.json").write_text(json.dumps([
+                _make_issue_dict("ibm-jira", str(i), f"jira-{i}")
+                for i in range(jira)
+            ]))
+        if rhkb:
+            d = root / "redhat-kb"
+            d.mkdir(parents=True)
+            (d / "issues.json").write_text(json.dumps([
+                _make_issue_dict("redhat-kb", str(i), f"kb-{i}")
+                for i in range(rhkb)
+            ]))
+        if meta_total is not None:
+            (root / "metadata.json").write_text(
+                json.dumps({"total_issues": meta_total})
+            )
+
+    def test_healthy_incremental_merges(self, tmp_path):
+        """Existing 200 tracker issues + 1 new fetch -> 201; rhkb untouched."""
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        from ceph_issue_kb.indexer.builder import build_index
+
+        fixture = _load("redmine_issue.json")
+        issue_data = dict(fixture["issue"])
+        issue_data["id"] = 999001
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=str(issue_data["id"]),
+            source_url=f"https://tracker.ceph.com/issues/{issue_data['id']}",
+            data=issue_data,
+        )
+        tracker = tmp_path / "ceph-tracker"
+        tracker.mkdir()
+        (tracker / "issues.json").write_text(json.dumps([
+            _make_issue_dict("ceph-tracker", str(i), f"old-{i}")
+            for i in range(200)
+        ]))
+        self._seed(tmp_path, jira=0, rhkb=50, meta_total=250)
+
+        config = _make_config("ceph-tracker")
+        mock = _make_mock_connector("ceph-tracker", [raw])
+        meta = build_index(
+            config, tmp_path, connectors_override={"ceph-tracker": mock},
+        )
+        stored = json.loads((tracker / "issues.json").read_text())
+        assert len(stored) == 201
+        assert len(json.loads((tmp_path / "redhat-kb" / "issues.json").read_text())) == 50
+        assert meta["total_issues"] == 251
+
+    def test_aug31_missing_jira_file_aborts_before_fetch(self, tmp_path):
+        """ibm-jira gone, rhkb intact, metadata still 18000 -> refuse."""
+        from ceph_issue_kb.indexer.builder import (
+            _assert_disk_not_collapsed,
+            build_index,
+        )
+
+        self._seed(tmp_path, jira=0, rhkb=2400, meta_total=18000)
+        with pytest.raises(RuntimeError, match="On-disk index has"):
+            _assert_disk_not_collapsed(tmp_path)
+
+        fixture = _load("redmine_issue.json")
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=str(fixture["issue"]["id"]),
+            source_url="https://tracker.ceph.com/issues/1",
+            data=fixture["issue"],
+        )
+        config = _make_config("ceph-tracker")
+        mock = _make_mock_connector("ceph-tracker", [raw])
+        with pytest.raises(RuntimeError, match="On-disk index has"):
+            build_index(config, tmp_path, connectors_override={"ceph-tracker": mock})
+        # rhkb must be untouched
+        assert len(json.loads((tmp_path / "redhat-kb" / "issues.json").read_text())) == 2400
+
+    def test_empty_jira_file_counts_as_collapse(self, tmp_path):
+        from ceph_issue_kb.indexer.builder import _assert_disk_not_collapsed
+
+        d = tmp_path / "ibm-jira"
+        d.mkdir()
+        (d / "issues.json").write_text("[]")
+        kb = tmp_path / "redhat-kb"
+        kb.mkdir()
+        (kb / "issues.json").write_text(json.dumps([
+            _make_issue_dict("redhat-kb", str(i), f"kb-{i}") for i in range(100)
+        ]))
+        (tmp_path / "metadata.json").write_text(json.dumps({"total_issues": 18000}))
+        with pytest.raises(RuntimeError, match="On-disk index has"):
+            _assert_disk_not_collapsed(tmp_path)
+
+    def test_full_rebuild_skips_collapse_guard(self, tmp_path):
+        rank_bm25 = pytest.importorskip("rank_bm25", reason="rank-bm25 not installed")
+        from ceph_issue_kb.indexer.builder import build_index
+
+        self._seed(tmp_path, jira=0, rhkb=2400, meta_total=18000)
+        fixture = _load("redmine_issue.json")
+        raw = RawIssue(
+            source="ceph-tracker",
+            source_id=str(fixture["issue"]["id"]),
+            source_url="https://tracker.ceph.com/issues/1",
+            data=fixture["issue"],
+        )
+        config = _make_config("ceph-tracker")
+        mock = _make_mock_connector("ceph-tracker", [raw])
+        meta = build_index(
+            config, tmp_path,
+            connectors_override={"ceph-tracker": mock},
+            full_rebuild=True,
+        )
+        assert len(json.loads((tmp_path / "redhat-kb" / "issues.json").read_text())) == 2400
+        assert meta["total_issues"] == 2401
+
+    def test_first_build_skips_collapse_without_metadata(self, tmp_path):
+        from ceph_issue_kb.indexer.builder import _assert_disk_not_collapsed
+
+        self._seed(tmp_path, jira=0, rhkb=50, meta_total=None)
+        _assert_disk_not_collapsed(tmp_path)
+
+    def test_missing_file_refused_when_siblings_exist_even_if_ratio_ok(self, tmp_path):
+        """Collapse ratio can pass while the primary source file is still gone."""
+        from ceph_issue_kb.indexer.builder import (
+            _assert_disk_not_collapsed,
+            _write_per_source,
+        )
+
+        self._seed(tmp_path, jira=0, rhkb=1200, meta_total=2000)
+        _assert_disk_not_collapsed(tmp_path)
+        with pytest.raises(RuntimeError, match="missing"):
+            _write_per_source({"ibm-jira": []}, tmp_path)
+
+    def test_publish_floor_would_block_3331(self, tmp_path):
+        from ceph_issue_kb.indexer.builder import _count_issues
+
+        self._seed(tmp_path, jira=918, rhkb=2413, meta_total=3331)
+        assert _count_issues(tmp_path) == 3331
+        assert _count_issues(tmp_path) < 10000
+
+    def test_publish_floor_allows_restored_index(self, tmp_path):
+        from ceph_issue_kb.indexer.builder import _count_issues
+
+        self._seed(tmp_path, jira=15930, rhkb=2413, meta_total=18343)
+        assert _count_issues(tmp_path) == 18343
+        assert _count_issues(tmp_path) >= 10000
