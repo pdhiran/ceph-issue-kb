@@ -173,9 +173,11 @@ python3 index_issues.py --full-rebuild --verbose
 ./update_index.sh --publish-only  # upload current knowledge/ without fetching
 ```
 
-`./update_index.sh` refuses to publish if the issue count is below a floor (avoids shipping an empty incremental merge). It writes `.last_index_update` and touches `.reload_trigger` so a running MCP hot-reloads.
+`./update_index.sh` refuses to publish if the issue count is below a floor (avoids shipping an empty incremental merge). It writes `.last_index_update` and touches `.reload_trigger` so a running MCP hot-reloads **without restarting Cursor**.
 
-MCP servers that only **consume** the Release do not need JIRA tokens; they pick up new tarballs on auto-update.
+MCP servers that only **consume** the Release do not need JIRA tokens; they pick up new tarballs on auto-update (`git pull` + Release download). A `.py` change exits the MCP subprocess so Cursor respawns it.
+
+Full maintainer help: [UPDATING.md](UPDATING.md).
 
 Layout: `knowledge/issues-2024-2025/<source>/issues.json` plus shared BM25/FAISS artefacts. Not stored in git — see [knowledge/README.md](knowledge/README.md).
 

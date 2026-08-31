@@ -13,6 +13,7 @@ import argparse
 import logging
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from ceph_issue_kb.config import load_config
@@ -22,6 +23,16 @@ DEFAULT_CONFIG = "connectors.yaml"
 DEFAULT_OUTPUT_DIR = "knowledge/issues-2024-2025"
 
 logger = logging.getLogger("ceph_issue_kb")
+
+
+def _iso_date(value: str) -> str:
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"Invalid date {value!r}; expected YYYY-MM-DD"
+        ) from exc
+    return value
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -48,7 +59,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--since",
-        metavar="DATE",
+        type=_iso_date,
+        metavar="YYYY-MM-DD",
         help="Only fetch issues updated since this ISO date (e.g. 2025-01-01)",
     )
     parser.add_argument(

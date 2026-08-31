@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 _periodic_stop: threading.Event | None = None
 
+TRIGGER_NAME = ".reload_trigger"
+TRIGGER_POLL_SECONDS = 5.0
+
 DEFAULT_RELEASE_REPO = os.environ.get("CEPH_ISSUE_KB_RELEASE_REPO", "pdhiran/ceph-issue-kb")
 RELEASE_TAG = "knowledge"
 ASSET_NAME = "knowledge.tar.gz"
@@ -361,6 +364,7 @@ def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
             if _has_code_changes(files):
                 logger.info("Code changes detected, restarting server")
                 os._exit(0)
+                return
 
         kb_changed, kb_msg = _sync_knowledge_release(repo_root)
         if (
@@ -400,6 +404,32 @@ def _periodic_loop(
         _do_update(kb, kb_path, repo_root)
 
 
+def _trigger_mtime(repo_root: Path) -> float:
+    try:
+        return (repo_root / TRIGGER_NAME).stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _trigger_loop(
+    kb: KnowledgeBase,
+    kb_path: Path,
+    repo_root: Path,
+    stop_event: threading.Event,
+) -> None:
+    last = _trigger_mtime(repo_root)
+    while not stop_event.wait(timeout=TRIGGER_POLL_SECONDS):
+        now = _trigger_mtime(repo_root)
+        if now > last + 0.01:
+            last = now
+            logger.info("Reload trigger detected, hot-reloading issue index")
+            try:
+                resolved = _resolve_kb_path(_knowledge_root(repo_root)) or kb_path
+                kb.reload(resolved)
+            except Exception as exc:
+                logger.warning("Trigger reload failed: %s", exc)
+
+
 def start_auto_update(
     kb: KnowledgeBase,
     kb_path: Path | None,
@@ -408,14 +438,8 @@ def start_auto_update(
 ) -> None:
     """Pull latest code from git and the issue index from GitHub Releases.
 
-    Safe to call unconditionally — silently skips if the KB directory
-    is not inside a git repository or has no remote configured.
-
-    Parameters
-    ----------
-    update_interval_hours:
-        Hours between periodic update checks.  Set to ``0`` to disable
-        periodic checks (startup pull still runs).
+    Always watches ``.reload_trigger`` so ``./update_index.sh`` hot-reloads
+    without restarting Cursor. Git pull still requires a remote.
     """
     global _periodic_stop  # noqa: PLW0603
 
@@ -432,33 +456,41 @@ def start_auto_update(
         logger.debug("Auto-update skipped: not a git repository")
         return
 
-    if not _has_remote(repo_root):
-        logger.debug("Auto-update skipped: no git remote configured")
-        return
+    stop_event = threading.Event()
+    _periodic_stop = stop_event
 
-    thread = threading.Thread(
-        target=_do_update,
-        args=(kb, kb_path, repo_root),
-        daemon=True,
-        name="kb-auto-update",
-    )
-    thread.start()
-
-    if update_interval_hours > 0:
-        interval_seconds = update_interval_hours * 3600
-        stop_event = threading.Event()
-        _periodic_stop = stop_event
-        periodic = threading.Thread(
-            target=_periodic_loop,
-            args=(kb, kb_path, repo_root, interval_seconds, stop_event),
+    if _has_remote(repo_root):
+        thread = threading.Thread(
+            target=_do_update,
+            args=(kb, kb_path, repo_root),
             daemon=True,
-            name="kb-periodic-update",
+            name="kb-auto-update",
         )
-        periodic.start()
-        logger.info(
-            "Scheduled next KB update check in %dh",
-            int(update_interval_hours),
-        )
+        thread.start()
+
+        if update_interval_hours > 0:
+            interval_seconds = update_interval_hours * 3600
+            periodic = threading.Thread(
+                target=_periodic_loop,
+                args=(kb, kb_path, repo_root, interval_seconds, stop_event),
+                daemon=True,
+                name="kb-periodic-update",
+            )
+            periodic.start()
+            logger.info(
+                "Scheduled next KB update check in %dh",
+                int(update_interval_hours),
+            )
+    else:
+        logger.debug("No git remote — skip pull, still watching .reload_trigger")
+
+    trigger = threading.Thread(
+        target=_trigger_loop,
+        args=(kb, kb_path, repo_root, stop_event),
+        daemon=True,
+        name="kb-reload-trigger",
+    )
+    trigger.start()
 
 
 def stop_auto_update() -> None:

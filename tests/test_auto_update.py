@@ -20,6 +20,7 @@ from ceph_issue_kb.server.auto_update import (
     _periodic_loop,
     _safe_extract,
     _sync_knowledge_release,
+    _trigger_loop,
     start_auto_update,
     stop_auto_update,
 )
@@ -377,6 +378,12 @@ class TestPeriodicLoop:
 # -- start_auto_update / stop_auto_update -----------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_auto_update():
+    yield
+    stop_auto_update()
+
+
 class TestStartAutoUpdate:
     def test_skips_when_no_kb_path(self):
         kb = MagicMock()
@@ -386,11 +393,14 @@ class TestStartAutoUpdate:
         kb = MagicMock()
         start_auto_update(kb, tmp_path)
 
-    def test_skips_when_no_remote(self, tmp_path):
+    def test_no_remote_still_starts_trigger(self, tmp_path):
         (tmp_path / ".git").mkdir()
         kb = MagicMock()
         with patch("ceph_issue_kb.server.auto_update._has_remote", return_value=False):
-            start_auto_update(kb, tmp_path)
+            start_auto_update(kb, tmp_path, update_interval_hours=0)
+        time.sleep(0.05)
+        names = [t.name for t in threading.enumerate()]
+        assert "kb-reload-trigger" in names
 
     def test_starts_startup_thread(self, tmp_path):
         (tmp_path / ".git").mkdir()
@@ -438,6 +448,50 @@ class TestStartAutoUpdate:
     def test_stop_is_idempotent(self):
         stop_auto_update()
         stop_auto_update()
+
+
+class TestTriggerLoop:
+    def test_touch_trigger_reloads_without_git(self, tmp_path):
+        kb = MagicMock()
+        kb._state.search.issues = {}
+        stop = threading.Event()
+        with patch("ceph_issue_kb.server.auto_update.TRIGGER_POLL_SECONDS", 0.05):
+            t = threading.Thread(
+                target=_trigger_loop,
+                args=(kb, tmp_path, tmp_path, stop),
+                daemon=True,
+            )
+            t.start()
+            time.sleep(0.08)
+            (tmp_path / ".reload_trigger").write_text("1")
+            deadline = time.time() + 2.0
+            while time.time() < deadline and not kb.reload.called:
+                time.sleep(0.05)
+            stop.set()
+            t.join(timeout=1)
+        kb.reload.assert_called()
+
+
+class TestUpdateIndexScript:
+    def test_script_touches_reload_trigger(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (root / "update_index.sh").read_text()
+        assert "touch .reload_trigger" in text
+
+    def test_reset_clears_tracker(self, tmp_path):
+        root = Path(__file__).resolve().parents[1]
+        script = tmp_path / "update_index.sh"
+        script.write_text((root / "update_index.sh").read_text())
+        script.chmod(0o755)
+        (tmp_path / ".last_index_update").write_text("2026-01-01\n")
+        subprocess.run([str(script), "--reset"], cwd=tmp_path, check=True)
+        assert not (tmp_path / ".last_index_update").exists()
+
+    def test_invalid_since_is_rejected(self):
+        from index_issues import _parse_args
+
+        with pytest.raises(SystemExit):
+            _parse_args(["--since", "not-a-date"])
 
 
 # -- CLI --update-interval integration --------------------------------------
