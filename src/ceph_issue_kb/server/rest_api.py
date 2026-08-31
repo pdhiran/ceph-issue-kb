@@ -222,7 +222,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.auto_update:
         from ceph_issue_kb.server.auto_update import start_auto_update
         start_auto_update(
-            kb, kb_dir,
+            kb, kb_dir or Path.cwd() / "knowledge",
             update_interval_hours=args.update_interval,
         )
 

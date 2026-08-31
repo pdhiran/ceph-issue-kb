@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _periodic_stop: threading.Event | None = None
+_auto_update_threads: list[threading.Thread] = []
 
 TRIGGER_NAME = ".reload_trigger"
 TRIGGER_POLL_SECONDS = 5.0
@@ -379,8 +380,9 @@ def _do_update(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> None:
                 logger.info("Knowledge base is up to date (%d issues)", count_before)
             return
 
-        resolved = _resolve_kb_path(_knowledge_root(repo_root)) or kb_path
-        kb.reload(resolved)
+        if not _hot_reload(kb, kb_path, repo_root):
+            logger.info("Indexing lock present after download; skipping reload")
+            return
         count_after = len(kb._state.search.issues)
         logger.info(
             "Knowledge base updated: %d -> %d issues",
@@ -411,6 +413,15 @@ def _trigger_mtime(repo_root: Path) -> float:
         return 0.0
 
 
+def _hot_reload(kb: KnowledgeBase, kb_path: Path, repo_root: Path) -> bool:
+    """Reload from disk. Returns False if the indexer lock is held."""
+    if _indexing_in_progress(repo_root):
+        return False
+    resolved = _resolve_kb_path(_knowledge_root(repo_root)) or kb_path
+    kb.reload(resolved)
+    return True
+
+
 def _trigger_loop(
     kb: KnowledgeBase,
     kb_path: Path,
@@ -420,14 +431,28 @@ def _trigger_loop(
     last = _trigger_mtime(repo_root)
     while not stop_event.wait(timeout=TRIGGER_POLL_SECONDS):
         now = _trigger_mtime(repo_root)
-        if now > last + 0.01:
+        if now <= last + 0.01:
+            continue
+        # Do not consume the trigger while locked — SearchEngine.load reads
+        # issues.json in place; indexer write_text() truncates first.
+        if _indexing_in_progress(repo_root):
+            logger.info("Reload trigger detected, waiting for indexing lock")
+            continue
+        logger.info("Reload trigger detected, hot-reloading issue index")
+        try:
+            if not _hot_reload(kb, kb_path, repo_root):
+                continue
             last = now
-            logger.info("Reload trigger detected, hot-reloading issue index")
-            try:
-                resolved = _resolve_kb_path(_knowledge_root(repo_root)) or kb_path
-                kb.reload(resolved)
-            except Exception as exc:
-                logger.warning("Trigger reload failed: %s", exc)
+        except Exception as exc:
+            last = now
+            logger.warning("Trigger reload failed: %s", exc)
+
+
+def _join_auto_update_threads(timeout: float = 1.0) -> None:
+    global _auto_update_threads  # noqa: PLW0603
+    for thread in _auto_update_threads:
+        thread.join(timeout=timeout)
+    _auto_update_threads = []
 
 
 def start_auto_update(
@@ -440,6 +465,9 @@ def start_auto_update(
 
     Always watches ``.reload_trigger`` so ``./update_index.sh`` hot-reloads
     without restarting Cursor. Git pull still requires a remote.
+
+    If *kb_path* is None (first Release download failed), still start the
+    watcher from the git repo so a later periodic check can load the index.
     """
     global _periodic_stop  # noqa: PLW0603
 
@@ -447,14 +475,24 @@ def start_auto_update(
         logger.warning("Auto-update already running; skipping duplicate start")
         return
 
-    if kb_path is None:
-        logger.debug("Auto-update skipped: no KB path")
-        return
+    _join_auto_update_threads()
 
-    repo_root = _find_repo_root(kb_path)
-    if repo_root is None:
-        logger.debug("Auto-update skipped: not a git repository")
-        return
+    if kb_path is None:
+        repo_root = _find_repo_root(Path.cwd()) or _find_repo_root(Path(__file__))
+        if repo_root is None:
+            logger.debug("Auto-update skipped: no KB path and not a git repository")
+            return
+        kb_path = _knowledge_root(repo_root)
+    else:
+        repo_root = _find_repo_root(kb_path)
+        if repo_root is None:
+            path = kb_path.resolve()
+            if path.name == "issues-2024-2025":
+                repo_root = path.parent.parent
+            elif path.name == "knowledge":
+                repo_root = path.parent
+            else:
+                repo_root = path
 
     stop_event = threading.Event()
     _periodic_stop = stop_event
@@ -467,6 +505,7 @@ def start_auto_update(
             name="kb-auto-update",
         )
         thread.start()
+        _auto_update_threads.append(thread)
 
         if update_interval_hours > 0:
             interval_seconds = update_interval_hours * 3600
@@ -477,6 +516,7 @@ def start_auto_update(
                 name="kb-periodic-update",
             )
             periodic.start()
+            _auto_update_threads.append(periodic)
             logger.info(
                 "Scheduled next KB update check in %dh",
                 int(update_interval_hours),
@@ -491,15 +531,17 @@ def start_auto_update(
         name="kb-reload-trigger",
     )
     trigger.start()
+    _auto_update_threads.append(trigger)
 
 
 def stop_auto_update() -> None:
-    """Signal the periodic update thread to stop.
+    """Signal watcher threads to stop and join them.
 
-    Primarily useful for tests.  The thread is a daemon, so it will
+    Primarily useful for tests.  The threads are daemons, so they will
     also die when the process exits.
     """
     global _periodic_stop  # noqa: PLW0603
     if _periodic_stop is not None:
         _periodic_stop.set()
         _periodic_stop = None
+    _join_auto_update_threads()

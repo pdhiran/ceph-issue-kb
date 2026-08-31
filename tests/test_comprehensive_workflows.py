@@ -1124,6 +1124,13 @@ class TestWorkflowH_CLI:
             _parse_args(["--help"])
         assert exc_info.value.code == 0
 
+    def test_invalid_since_exits_before_index(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from index_issues import _parse_args
+        with pytest.raises(SystemExit) as exc_info:
+            _parse_args(["--since", "not-a-date"])
+        assert exc_info.value.code == 2
+
     def test_main_missing_config(self, tmp_path, monkeypatch):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from index_issues import main

@@ -64,7 +64,7 @@ Re-indexing from JIRA/RHKB (maintainers only) needs credentials — [CREDENTIALS
 }
 ```
 
-Optional: `"--kb-path", "/path/to/ceph-issue-kb/knowledge/issues-2024-2025"` if auto-detect is wrong. `"--no-auto-update"` disables scheduled Release re-download.
+Optional: `"--kb-path", "/path/to/ceph-issue-kb/knowledge/issues-2024-2025"` if auto-detect is wrong. `"--no-auto-update"` disables scheduled Release re-download. Default interval is **12 hours** (cmd-kb and doc-kb default to 1h; this tarball is large). Override with `"--update-interval", "12"`.
 
 Restart Cursor after editing `mcp.json`.
 

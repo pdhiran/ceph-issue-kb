@@ -217,8 +217,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=8080,
-        help="Port for SSE transport (default: 8080)",
+        default=8083,
+        help="Port for SSE transport (default: 8083)",
     )
     parser.add_argument(
         "--auto-update",
@@ -229,9 +229,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--update-interval",
         type=float,
-        default=1,
+        default=12,
         metavar="HOURS",
-        help="Hours between periodic update checks (default: 1, 0=disable periodic)",
+        help="Hours between periodic update checks (default: 12, 0=disable periodic)",
     )
     args = parser.parse_args(argv)
 
@@ -251,8 +251,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.auto_update:
         from ceph_issue_kb.server.auto_update import start_auto_update
+        # kb_dir is None when the first Release download failed — still watch
+        # the repo so a later periodic check / .reload_trigger can load it.
         start_auto_update(
-            kb, kb_dir,
+            kb, kb_dir or Path.cwd() / "knowledge",
             update_interval_hours=args.update_interval,
         )
 

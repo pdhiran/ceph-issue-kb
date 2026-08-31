@@ -39,7 +39,7 @@ Refuses to publish if the issue count is below `MIN_ISSUES` (default 10000) so a
 | No git remote (local-only) | Release download skipped; trigger watcher still runs so local `./update_index.sh` hot-reloads | Stays open |
 | `knowledge/.indexing_lock` present | Release install waits / skips so it cannot clobber an in-progress index | — |
 
-Default interval is **12 hours**. Override: `--update-interval HOURS`. Disable: `--no-auto-update`.
+Default interval is **12 hours** (cmd-kb / doc-kb default to 1h; this Release tarball is large). Override: `--update-interval HOURS`. Disable: `--no-auto-update`.
 
 MCP **consumers** do not need JIRA tokens.
 
